@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.gradient-border {
+    position: relative;
+    border-radius: 0.75rem;
+    background: linear-gradient(135deg, #0dccf2 0%, #a855f7 100%);
+    padding: 1px;
+}
+
+.gradient-border-inner {
+    background: #081113;
+    border-radius: 0.7rem;
+    height: 100%;
+}
+
+.glow-accent {
+    box-shadow: 0 0 40px -10px rgba(13, 204, 242, 0.3);
+}
