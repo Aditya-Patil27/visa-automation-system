@@ -1,25 +1,22 @@
-from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic_settings import BaseSettings
-from pydantic import field_validator
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase
+
+DATABASE_URL = "sqlite+aiosqlite:///visa.db"
+
+engine = create_async_engine(DATABASE_URL, echo=False)
+async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-class Settings(BaseSettings):
-    mongodb_url: str = "mongodb://localhost:27017"
-    database_name: str = "visa_db"
-
-    @field_validator('mongodb_url')
-    @classmethod
-    def validate_mongodb_url(cls, v: str) -> str:
-        if "@cluster.mongodb.net" in v:
-            raise ValueError("Invalid MongoDB Atlas connection string. You must include your specific cluster subdomain (e.g., @cluster0.xyzid.mongodb.net)")
-        return v
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+class Base(DeclarativeBase):
+    pass
 
 
-def get_database():
-    settings = Settings()
-    client = AsyncIOMotorClient(settings.mongodb_url)
-    return client[settings.database_name]
+async def init_db():
+    from . import models  # noqa – ensure tables are registered
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def get_session() -> AsyncSession:
+    async with async_session() as session:
+        yield session

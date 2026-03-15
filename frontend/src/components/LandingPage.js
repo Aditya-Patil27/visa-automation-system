@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
+  const [showDemo, setShowDemo] = useState(false);
+
   return (
     <div className="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 selection:bg-primary/30">
       <div className="relative min-h-screen overflow-x-hidden">
@@ -50,7 +52,7 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
                 <button onClick={onGetStartedClick} className="px-8 py-4 bg-primary text-background-dark font-bold rounded-xl hover:scale-105 transition-transform shadow-xl shadow-primary/25">
                   Start Assessment
                 </button>
-                <button className="glass px-8 py-4 text-white font-bold rounded-xl hover:bg-white/10 transition-all flex items-center gap-2">
+                <button onClick={() => setShowDemo(true)} className="glass px-8 py-4 text-white font-bold rounded-xl hover:bg-white/10 transition-all flex items-center gap-2">
                   <span className="material-symbols-outlined">play_circle</span>
                   Watch Demo
                 </button>
@@ -177,10 +179,10 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
                 Join thousands of travelers who have streamlined their global mobility with VisaFlow AI.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-                <button className="w-full sm:w-auto px-10 py-5 bg-white text-background-dark font-black rounded-2xl hover:bg-primary transition-all shadow-2xl">
+                <button onClick={onGetStartedClick} className="w-full sm:w-auto px-10 py-5 bg-white text-background-dark font-black rounded-2xl hover:bg-primary transition-all shadow-2xl">
                   Get Early Access
                 </button>
-                <button className="w-full sm:w-auto px-10 py-5 glass text-white font-bold rounded-2xl hover:bg-white/10 transition-all">
+                <button onClick={() => window.location.href = 'mailto:support@visaflow.ai?subject=Sales%20Inquiry'} className="w-full sm:w-auto px-10 py-5 glass text-white font-bold rounded-2xl hover:bg-white/10 transition-all">
                   Talk to Sales
                 </button>
               </div>
@@ -236,7 +238,7 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
               </div>
             </div>
             <div className="pt-8 border-t border-slate-200/5 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-600">
-              <p>© 2024 VisaFlow AI Inc. All rights reserved.</p>
+              <p>&copy; 2024 VisaFlow AI Inc. All rights reserved.</p>
               <div className="flex gap-8">
                 <a className="hover:text-slate-400" href="/">Security</a>
                 <a className="hover:text-slate-400" href="/">Status</a>
@@ -246,6 +248,36 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
           </div>
         </footer>
       </div>
+
+      {/* Demo Video Modal */}
+      {showDemo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowDemo(false)}>
+          <div className="relative w-full max-w-4xl mx-4 bg-background-dark rounded-3xl border border-primary/20 overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-primary/10">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">play_circle</span>
+                <h3 className="text-lg font-bold text-white">VisaFlow AI Demo</h3>
+              </div>
+              <button onClick={() => setShowDemo(false)} className="p-2 hover:bg-primary/10 rounded-lg transition-colors">
+                <span className="material-symbols-outlined text-slate-400 hover:text-white">close</span>
+              </button>
+            </div>
+            <div className="p-6">
+              <video
+                className="w-full rounded-xl border border-primary/10"
+                controls
+                autoPlay
+                src="/demo-video.webm"
+                poster=""
+              >
+                <source src="/demo-video.webm" type="video/webm" />
+                Your browser does not support the video tag.
+              </video>
+              <p className="text-center text-xs text-slate-500 mt-4">Watch how VisaFlow AI streamlines your entire visa application process.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

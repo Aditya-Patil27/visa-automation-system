@@ -13,6 +13,7 @@ import VisaAppointmentScheduler from './components/VisaAppointmentScheduler';
 import VisaEligibilityChecker from './components/VisaEligibilityChecker';
 import VisaKnowledgeManagement from './components/VisaKnowledgeManagement';
 import VisaProgressTracker from './components/VisaProgressTracker';
+import TrackingSimulation from './components/TrackingSimulation';
 import AuthPage from './components/AuthPage';
 
 function App() {
@@ -45,8 +46,9 @@ function App() {
         <Route path="/visa-eligibility-checker" element={<ProtectedRoute token={token}><VisaEligibilityChecker /></ProtectedRoute>} />
         <Route path="/visa-knowledge-management" element={<ProtectedRoute token={token}><VisaKnowledgeManagement /></ProtectedRoute>} />
         <Route path="/visa-progress-tracker" element={<ProtectedRoute token={token}><VisaProgressTracker /></ProtectedRoute>} />
+        <Route path="/tracking-simulation" element={<ProtectedRoute token={token}><TrackingSimulation /></ProtectedRoute>} />
         
-        {/* Unprotected routes that were previously in the main list but not in the protected list */}
+        {/* Unprotected routes */}
         <Route path="/approval-workflow" element={<ApprovalWorkflow />} />
         <Route path="/document-vault-upload-system" element={<DocumentVaultUploadSystem />} />
         <Route path="/eligibility-results-suggestions" element={<EligibilityResultsSuggestions />} />

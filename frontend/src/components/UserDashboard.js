@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 const UserDashboard = () => {
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [showNotifications, setShowNotifications] = useState(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -36,7 +37,6 @@ const UserDashboard = () => {
         return <div className="h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading dashboard...</div>;
     }
 
-    // fallback when no data is fetched
     const data = dashboardData || {
         user_name: "User",
         email: "user@example.com",
@@ -44,6 +44,35 @@ const UserDashboard = () => {
         next_appointment: { date: "TBD", title: "No Appointments", time: "--", location: "--" },
         recent_activities: [],
         documents: []
+    };
+
+    const handleDownloadReceipt = () => {
+        const receipt = `
+═══════════════════════════════════════
+        VISAFLOW AI – APPLICATION RECEIPT
+═══════════════════════════════════════
+
+  Applicant: ${data.user_name}
+  Email: ${data.email}
+  Status: ${data.active_case.status}
+  
+  Next Appointment: ${data.next_appointment.title}
+  Date: ${data.next_appointment.date}
+  Time: ${data.next_appointment.time}
+  Location: ${data.next_appointment.location}
+
+  Generated: ${new Date().toLocaleString()}
+  
+═══════════════════════════════════════
+  This is a system-generated receipt.
+═══════════════════════════════════════`;
+        const blob = new Blob([receipt], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `VisaFlow_Receipt_${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     return (
@@ -82,12 +111,16 @@ const UserDashboard = () => {
                             <span className="material-symbols-outlined">analytics</span>
                             Tracker
                         </Link>
+                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors text-slate-600 dark:text-slate-400" to="/tracking-simulation">
+                            <span className="material-symbols-outlined">satellite_alt</span>
+                            Tracking Sim
+                        </Link>
                     </nav>
                     <div className="p-4 mt-auto">
                         <div className="rounded-xl bg-primary/5 p-4 border border-primary/10">
                             <p className="text-xs font-semibold text-primary uppercase tracking-wider">Support</p>
                             <p className="text-sm mt-1 text-slate-500 dark:text-slate-400">Need help with your application?</p>
-                            <button onClick={() => console.log('Contact Us Clicked')} className="mt-3 w-full py-2 bg-primary text-background-dark rounded-lg text-sm font-bold">Contact Us</button>
+                            <button onClick={() => navigate('/ai-visa-chatbot')} className="mt-3 w-full py-2 bg-primary text-background-dark rounded-lg text-sm font-bold">Contact Us</button>
                         </div>
                     </div>
                 </aside>
@@ -102,11 +135,34 @@ const UserDashboard = () => {
                             </div>
                         </div>
                         <div className="flex items-center gap-6">
-                            <button aria-label="Notifications" onClick={() => console.log('Notifications Clicked')} className="relative p-2 text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
-                                <span className="material-symbols-outlined">notifications</span>
-                                <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-background-dark"></span>
-                            </button>
-                            <button aria-label="Settings" onClick={() => console.log('Settings Clicked')} className="p-2 text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
+                            <div className="relative">
+                                <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
+                                    <span className="material-symbols-outlined">notifications</span>
+                                    <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-background-dark"></span>
+                                </button>
+                                {showNotifications && (
+                                    <div className="absolute right-0 top-12 w-72 bg-background-dark border border-primary/20 rounded-xl shadow-2xl p-4 z-50">
+                                        <h4 className="text-sm font-bold text-white mb-3">Notifications</h4>
+                                        <div className="space-y-3">
+                                            <div className="flex items-start gap-2 p-2 rounded-lg bg-primary/5">
+                                                <span className="material-symbols-outlined text-primary text-sm mt-0.5">check_circle</span>
+                                                <div>
+                                                    <p className="text-xs font-semibold">Documents Verified</p>
+                                                    <p className="text-[10px] text-slate-500">Today, 2:45 PM</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-2 p-2 rounded-lg bg-primary/5">
+                                                <span className="material-symbols-outlined text-amber-500 text-sm mt-0.5">schedule</span>
+                                                <div>
+                                                    <p className="text-xs font-semibold">Appointment reminder</p>
+                                                    <p className="text-[10px] text-slate-500">Oct 24 – Biometric Enrollment</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <button aria-label="Settings" onClick={() => alert('Settings page coming soon!\n\nManage your profile, security, and notification preferences.')} className="p-2 text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
                                 <span className="material-symbols-outlined">settings</span>
                             </button>
                             <div className="flex items-center gap-3 pl-6 border-l border-primary/10">
@@ -122,7 +178,7 @@ const UserDashboard = () => {
                     </header>
                     {/* Dashboard Body */}
                     <div className="p-8 space-y-8 max-w-7xl mx-auto w-full relative z-10">
-                        {/* Status Hero Card (Glassmorphism) */}
+                        {/* Status Hero Card */}
                         <div className="relative overflow-hidden rounded-2xl bg-primary/5 backdrop-blur-sm border border-primary/20 p-10 shadow-[0_0_15px_rgba(13,204,242,0.1)] group">
                             <div className="absolute -right-20 -top-20 w-64 h-64 bg-primary/10 blur-[100px] rounded-full group-hover:bg-primary/20 transition-all"></div>
                             <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -138,7 +194,7 @@ const UserDashboard = () => {
                                     <Link to="/visa-progress-tracker"><button className="w-full bg-primary hover:bg-primary/90 text-background-dark px-6 py-3 rounded-xl font-bold transition-all transform hover:scale-[1.02]">
                                         View Details
                                     </button></Link>
-                                    <button onClick={() => console.log('Download Receipt Clicked')} className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 px-6 py-3 rounded-xl font-bold transition-all">
+                                    <button onClick={handleDownloadReceipt} className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 px-6 py-3 rounded-xl font-bold transition-all">
                                         Download Receipt
                                     </button>
                                 </div>
@@ -193,7 +249,7 @@ const UserDashboard = () => {
                                         </div>
                                     </div>
                                     <div className="ml-6 flex-1">
-                                        <p className="text-sm font-bold text-primary">UK Standard Visitor</p>
+                                        <p className="text-sm font-bold text-primary">Standard Tourist Visa</p>
                                         <p className="text-xs text-slate-500 mt-1">Based on documents provided, you have a high probability of approval.</p>
                                         <div className="mt-3 h-1 w-full bg-slate-200 dark:bg-primary/10 rounded-full overflow-hidden">
                                             <div className="bg-primary h-full w-[85%]"></div>
@@ -221,7 +277,7 @@ const UserDashboard = () => {
                                 </div>
                             </div>
                         </div>
-                        {/* Documents Section (Quick Access) */}
+                        {/* Documents Section */}
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-xl font-bold">Quick Access Documents</h3>

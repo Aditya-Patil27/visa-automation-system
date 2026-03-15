@@ -331,7 +331,7 @@ const ActivityLogs = () => {
                                         </div>
                                         <div>
                                             <p className="text-[10px] text-slate-500 uppercase">Region</p>
-                                            <p className="text-xs font-medium">London, UK (HQ)</p>
+                                            <p className="text-xs font-medium">Global HQ</p>
                                         </div>
                                         <div>
                                             <p className="text-[10px] text-slate-500 uppercase">Source</p>

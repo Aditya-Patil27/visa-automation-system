@@ -49,11 +49,26 @@ visa-automation-system/
    pip install -r requirements.txt
    ```
 2. Ensure MongoDB is running locally (or update `mongodb_url` in `database.py`).
+   > **Note:** the server will fail if it cannot connect; start `mongod` or use a hosted URI.
 3. Populate `.env` with your OpenAI API key.
-4. Run the FastAPI server:
+4. Run the FastAPI server.
+
+   You can either start from the project root:
    ```bash
    uvicorn backend.app.main:app --reload --port 8000
    ```
+   or, if you `cd` into the `backend` directory, adjust the import path or app directory:
+   ```bash
+   # from within backend/
+   uvicorn app.main:app --reload --port 8000 --app-dir .
+   ```
+
+   The first form requires that the current working directory include the `backend` package (i.e. run from the repository root),
+   otherwise Python will fail to locate the `backend` module.
+
+   **CORS note:** the app is configured to allow requests from `http://localhost:3000`,
+   which is where the React frontend runs by default. Adjust the `allow_origins` list in
+   `backend/app/main.py` if you host the frontend elsewhere.
 
 ### Frontend
 1. Navigate to `frontend` and install packages:

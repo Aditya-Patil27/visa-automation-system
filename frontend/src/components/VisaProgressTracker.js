@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 const VisaProgressTracker = () => {
     const [progressData, setProgressData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [showNotifications, setShowNotifications] = useState(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -38,6 +39,11 @@ const VisaProgressTracker = () => {
 
     const data = progressData || { progress_steps: [], stats: {} };
 
+    const handleViewLocation = (step) => {
+        const location = step.desc || 'London VFS Global Center';
+        window.open(`https://www.google.com/maps/search/${encodeURIComponent(location)}`, '_blank');
+    };
+
     return (
         <div className="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen">
             <div className="flex h-screen overflow-hidden">
@@ -62,7 +68,11 @@ const VisaProgressTracker = () => {
                             <span className="material-symbols-outlined">description</span>
                             <span className="font-medium">Documents</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-primary transition-colors" to="/">
+                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-primary transition-colors" to="/tracking-simulation">
+                            <span className="material-symbols-outlined">satellite_alt</span>
+                            <span className="font-medium">Tracking Sim</span>
+                        </Link>
+                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-primary transition-colors" to="/visa-appointment-scheduler">
                             <span className="material-symbols-outlined">payments</span>
                             <span className="font-medium">Payments</span>
                         </Link>
@@ -96,11 +106,34 @@ const VisaProgressTracker = () => {
                             <span className="font-mono text-primary bg-primary/10 px-2 py-1 rounded">#VF-9928341</span>
                         </div>
                         <div className="flex items-center gap-6">
-                            <button aria-label="Notifications" onClick={() => console.log('Notifications')} className="text-slate-400 hover:text-primary relative">
-                                <span className="material-symbols-outlined">notifications</span>
-                                <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full ring-2 ring-background-dark"></span>
-                            </button>
-                            <button aria-label="Settings" onClick={() => console.log('Settings')} className="text-slate-400 hover:text-primary">
+                            <div className="relative">
+                                <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="text-slate-400 hover:text-primary relative">
+                                    <span className="material-symbols-outlined">notifications</span>
+                                    <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full ring-2 ring-background-dark"></span>
+                                </button>
+                                {showNotifications && (
+                                    <div className="absolute right-0 top-10 w-72 bg-background-dark border border-primary/20 rounded-xl shadow-2xl p-4 z-50">
+                                        <h4 className="text-sm font-bold text-white mb-3">Notifications</h4>
+                                        <div className="space-y-3">
+                                            <div className="flex items-start gap-2 p-2 rounded-lg bg-primary/5">
+                                                <span className="material-symbols-outlined text-primary text-sm mt-0.5">info</span>
+                                                <div>
+                                                    <p className="text-xs font-semibold">Appointment Confirmed</p>
+                                                    <p className="text-[10px] text-slate-500">Oct 28 – VFS Global Center</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start gap-2 p-2 rounded-lg bg-primary/5">
+                                                <span className="material-symbols-outlined text-green-500 text-sm mt-0.5">check_circle</span>
+                                                <div>
+                                                    <p className="text-xs font-semibold">Documents Verified</p>
+                                                    <p className="text-[10px] text-slate-500">All documents passed validation</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <button aria-label="Settings" onClick={() => alert('Settings page coming soon!\n\nManage notifications, language, and display preferences.')} className="text-slate-400 hover:text-primary">
                                 <span className="material-symbols-outlined">settings</span>
                             </button>
                             <div className="flex items-center gap-3 border-l border-primary/10 pl-6">
@@ -151,11 +184,14 @@ const VisaProgressTracker = () => {
                                             
                                             {isCurrent && (
                                                 <div className="mt-6 flex flex-wrap gap-3">
-                                                    <button onClick={() => console.log('View Location')} className="bg-primary text-background-dark text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2">
+                                                    <button onClick={() => handleViewLocation(step)} className="bg-primary text-background-dark text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2 hover:brightness-110 transition-all">
                                                         <span className="material-symbols-outlined text-sm">map</span> View Location
                                                     </button>
                                                     <Link to="/visa-appointment-scheduler"><button className="bg-primary/20 text-primary border border-primary/30 text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2">
                                                         <span className="material-symbols-outlined text-sm">calendar_month</span> Reschedule
+                                                    </button></Link>
+                                                    <Link to="/tracking-simulation"><button className="bg-primary/20 text-primary border border-primary/30 text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2">
+                                                        <span className="material-symbols-outlined text-sm">satellite_alt</span> Simulate Tracking
                                                     </button></Link>
                                                 </div>
                                             )}

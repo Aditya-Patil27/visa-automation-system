@@ -8,6 +8,7 @@ const AiVisaChatbot = () => {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const messagesEndRef = useRef(null);
+    const fileInputRef = useRef(null);
     const navigate = useNavigate();
 
     const scrollToBottom = () => {
@@ -18,11 +19,11 @@ const AiVisaChatbot = () => {
         scrollToBottom();
     }, [messages, loading]);
 
-    const handleSend = async () => {
-        if (!input.trim()) return;
-        const userMsg = input;
-        setInput('');
-        setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    const handleSend = async (overrideText) => {
+        const textToSend = overrideText || input;
+        if (!textToSend.trim()) return;
+        if (!overrideText) setInput('');
+        setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
         setLoading(true);
 
         try {
@@ -38,7 +39,7 @@ const AiVisaChatbot = () => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ question: userMsg })
+                body: JSON.stringify({ question: textToSend })
             });
 
             if (res.ok) {
@@ -61,6 +62,66 @@ const AiVisaChatbot = () => {
         if (e.key === 'Enter') handleSend();
     };
 
+    const handleChipClick = (text) => {
+        handleSend(text);
+    };
+
+    const handleAttachFile = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setMessages(prev => [...prev, { role: 'user', content: `📎 Uploading: ${file.name}` }]);
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('access_token');
+            if (!token) { navigate('/login'); return; }
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch('http://localhost:8000/ocr', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData,
+            });
+            if (res.ok) {
+                const data = await res.json();
+                
+                if (data.ocr_text && data.ocr_text.includes('[OCR error')) {
+                    setMessages(prev => [...prev, { role: 'assistant', content: `❌ **Document scan failed for ${data.filename}:**\n\n${data.ocr_text}` }]);
+                    return;
+                }
+
+                let msg = `📄 **OCR Results for ${data.filename}:**\n\n`;
+                if (data.extracted_fields && Object.keys(data.extracted_fields).length > 0) {
+                    const fields = data.extracted_fields;
+                    if (fields.full_name) msg += `• Name: ${fields.full_name}\n`;
+                    if (fields.passport_number) msg += `• Passport: ${fields.passport_number}\n`;
+                    if (fields.nationality) msg += `• Nationality: ${fields.nationality}\n`;
+                    if (fields.dates_found) msg += `• Dates: ${fields.dates_found.join(', ')}\n`;
+                }
+                if (data.ocr_text) {
+                    msg += `\nExtracted Text:\n${data.ocr_text}`;
+                }
+                setMessages(prev => [...prev, { role: 'assistant', content: msg }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: "Failed to process the uploaded file." }]);
+            }
+        } catch (err) {
+            console.error(err);
+            setMessages(prev => [...prev, { role: 'assistant', content: "Error uploading file. Please try again." }]);
+        } finally {
+            setLoading(false);
+            e.target.value = '';
+        }
+    };
+
+    const handleShare = () => {
+        const chatText = messages.map(m => `${m.role === 'user' ? 'You' : 'VisaAI'}: ${m.content}`).join('\n\n');
+        navigator.clipboard.writeText(chatText).then(() => {
+            alert('Chat copied to clipboard!');
+        }).catch(() => {
+            alert('Failed to copy chat.');
+        });
+    };
+
     return (
         <div className="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased overflow-hidden">
             <div className="flex h-screen w-full overflow-hidden">
@@ -73,7 +134,7 @@ const AiVisaChatbot = () => {
                         <h1 className="text-xl font-bold tracking-tight">VisaAI</h1>
                     </div>
                     <div className="px-4 mb-4">
-                        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/20 transition-all text-primary font-medium">
+                        <button onClick={() => { setMessages([{ role: 'assistant', content: "Hello! I'm your dedicated VisaAI assistant. What's your next destination?" }]); setInput(''); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/20 transition-all text-primary font-medium">
                             <span className="material-symbols-outlined text-xl">add_circle</span>
                             New Consultation
                         </button>
@@ -84,7 +145,7 @@ const AiVisaChatbot = () => {
                             <div className="space-y-1">
                                 <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/5 text-primary border border-primary/10" to="#!">
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
-                                    <span className="text-sm truncate">UK Visa Requirements</span>
+                                    <span className="text-sm truncate">General Visa Requirements</span>
                                 </Link>
                                 <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
@@ -105,12 +166,12 @@ const AiVisaChatbot = () => {
                             <div className="space-y-1">
                                 <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
                                     <span className="material-symbols-outlined text-xl">description</span>
-                                    <span className="text-sm">UK Checklist.pdf</span>
+                                    <span className="text-sm">Visa Checklist.pdf</span>
                                 </Link>
                             </div>
                         </div>
                         <div className="mt-8">
-                            <Link to="/admin-dashboard" className="text-xs font-medium text-slate-400 hover:text-primary">&larr; Back to Admin Dashboard</Link>
+                            <Link to="/user-dashboard" className="text-xs font-medium text-slate-400 hover:text-primary">&larr; Back to Dashboard</Link>
                         </div>
                     </nav>
                     <div className="p-4 border-t border-slate-200 dark:border-primary/10">
@@ -134,15 +195,15 @@ const AiVisaChatbot = () => {
                     <header className="h-16 border-b border-slate-200 dark:border-primary/10 flex items-center justify-between px-8 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md z-10">
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Consultation:</span>
-                            <span className="text-sm font-bold">UK Standard Visitor Visa</span>
+                            <span className="text-sm font-bold">Standard Tourist Visa</span>
                         </div>
                         <div className="flex items-center gap-4">
-                            <button className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary transition-colors">
+                            <button onClick={handleShare} className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary transition-colors">
                                 <span className="material-symbols-outlined text-lg">share</span>
                                 Share
                             </button>
                             <div className="h-4 w-[1px] bg-slate-200 dark:bg-primary/20"></div>
-                            <button className="bg-primary text-background-dark text-sm font-bold px-4 py-1.5 rounded-lg hover:opacity-90 transition-all">
+                            <button onClick={() => navigate('/register')} className="bg-primary text-background-dark text-sm font-bold px-4 py-1.5 rounded-lg hover:opacity-90 transition-all">
                                 Upgrade
                             </button>
                         </div>
@@ -187,22 +248,23 @@ const AiVisaChatbot = () => {
                     <footer className="p-8 z-10 relative">
                         {/* Suggested Chips */}
                         <div className="flex flex-wrap gap-2 mb-6 max-w-4xl mx-auto justify-center">
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                            <button onClick={() => handleChipClick("What documents do I need for France?")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
                                 What documents do I need for France?
                             </button>
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                            <button onClick={() => handleChipClick("Check my eligibility")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
                                 Check my eligibility
                             </button>
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                Cost of UK Visa
+                            <button onClick={() => handleChipClick("Cost of Tourist Visa")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                                Cost of Tourist Visa
                             </button>
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                            <button onClick={() => handleChipClick("Interview tips")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
                                 Interview tips
                             </button>
                         </div>
                         {/* Input Container */}
                         <div className="max-w-4xl mx-auto bg-background-dark/70 backdrop-blur-xl border border-primary/10 p-2 rounded-2xl shadow-2xl flex items-center gap-2">
-                            <button className="p-3 text-slate-400 hover:text-primary transition-colors">
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={handleAttachFile} />
+                            <button onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-400 hover:text-primary transition-colors" title="Upload document for OCR">
                                 <span className="material-symbols-outlined">attach_file</span>
                             </button>
                             <input 
@@ -214,10 +276,10 @@ const AiVisaChatbot = () => {
                                 onKeyDown={handleKeyDown}
                                 disabled={loading}
                             />
-                            <button className="p-3 text-slate-400 hover:text-primary transition-colors">
+                            <button className="p-3 text-slate-400 hover:text-slate-600 transition-colors cursor-not-allowed opacity-50" title="Voice input coming soon" disabled>
                                 <span className="material-symbols-outlined">mic</span>
                             </button>
-                            <button onClick={handleSend} disabled={loading || !input.trim()} className="bg-primary text-background-dark p-3 rounded-xl shadow-[0_0_15px_rgba(13,204,242,0.4)] hover:scale-105 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100">
+                            <button onClick={() => handleSend()} disabled={loading || !input.trim()} className="bg-primary text-background-dark p-3 rounded-xl shadow-[0_0_15px_rgba(13,204,242,0.4)] hover:scale-105 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100">
                                 <span className="material-symbols-outlined font-bold">send</span>
                             </button>
                         </div>

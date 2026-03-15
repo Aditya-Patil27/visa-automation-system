@@ -6,7 +6,7 @@ async def test_rag():
     print("Testing index_documents...")
     try:
         index_documents([
-            "A UK Standard Visitor Visa is normally valid for 6 months. You cannot work on this visa.",
+            "A Standard Tourist Visa is normally valid for 6 months. You cannot work on this visa.",
             "For a Schengen Visa to France, you must provide a travel itinerary and travel insurance covering 30k Euros."
         ])
         print("Successfully indexed test documents.")
