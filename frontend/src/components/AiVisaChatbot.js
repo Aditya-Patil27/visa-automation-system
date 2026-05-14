@@ -7,6 +7,12 @@ const AiVisaChatbot = () => {
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [suggestionChips, setSuggestionChips] = useState([
+        "What documents do I need for France?",
+        "Check my eligibility",
+        "Cost of Tourist Visa",
+        "Interview tips",
+    ]);
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
     const navigate = useNavigate();
@@ -24,6 +30,8 @@ const AiVisaChatbot = () => {
         if (!textToSend.trim()) return;
         if (!overrideText) setInput('');
         setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
+        // Add empty assistant message placeholder before streaming begins
+        setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
         setLoading(true);
 
         try {
@@ -33,7 +41,7 @@ const AiVisaChatbot = () => {
                 return;
             }
 
-            const res = await fetch('http://localhost:8000/chat', {
+            const res = await fetch('http://localhost:8000/chat/stream', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -42,17 +50,93 @@ const AiVisaChatbot = () => {
                 body: JSON.stringify({ question: textToSend })
             });
 
-            if (res.ok) {
-                const data = await res.json();
-                setMessages(prev => [...prev, { role: 'assistant', content: data.answer }]);
-            } else if (res.status === 401) {
-                navigate('/login');
+            if (!res.ok) {
+                if (res.status === 401) {
+                    navigate('/login');
+                    return;
+                }
+                setMessages(prev => {
+                    const msgs = [...prev];
+                    msgs[msgs.length - 1] = { role: 'assistant', content: "Sorry, I encountered an error while processing your request." };
+                    return msgs;
+                });
+                return;
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let fullResponse = '';
+            let streamDone = false;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    if (trimmed.startsWith('data: ')) {
+                        const dataStr = trimmed.slice(6);
+                        if (dataStr === '[DONE]') {
+                            streamDone = true;
+                            break;
+                        }
+                        try {
+                            const parsed = JSON.parse(dataStr);
+                            if (parsed.token) {
+                                fullResponse += parsed.token;
+                                setMessages(prev => {
+                                    const msgs = [...prev];
+                                    const last = { ...msgs[msgs.length - 1] };
+                                    last.content += parsed.token;
+                                    msgs[msgs.length - 1] = last;
+                                    return msgs;
+                                });
+                            }
+                        } catch (_) {
+                            // Skip malformed JSON lines
+                        }
+                    }
+                }
+                if (streamDone) break;
+            }
+
+            // Dynamic suggestion chips update based on response context
+            const lower = fullResponse.toLowerCase();
+            if (lower.includes('france') || lower.includes('schengen') || lower.includes('europe')) {
+                setSuggestionChips([
+                    "What documents do I need for Schengen?",
+                    "Schengen visa fees",
+                    "Processing time for France visa",
+                    "Travel insurance requirements",
+                ]);
+            } else if (lower.includes('eligibility') || lower.includes('check') || lower.includes('qualify')) {
+                setSuggestionChips([
+                    "Check my eligibility for UK visa",
+                    "Am I eligible for US visa?",
+                    "Eligibility criteria for Schengen",
+                    "Work visa eligibility check",
+                ]);
             } else {
-                setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error while processing your request." }]);
+                setSuggestionChips([
+                    "What documents do I need for France?",
+                    "Check my eligibility",
+                    "Cost of Tourist Visa",
+                    "Interview tips",
+                ]);
             }
         } catch (err) {
             console.error(err);
-             setMessages(prev => [...prev, { role: 'assistant', content: "Network error. Please try again later." }]);
+            setMessages(prev => {
+                const msgs = [...prev];
+                msgs[msgs.length - 1] = { role: 'assistant', content: "Network error. Please try again later." };
+                return msgs;
+            });
         } finally {
             setLoading(false);
         }
@@ -248,18 +332,15 @@ const AiVisaChatbot = () => {
                     <footer className="p-8 z-10 relative">
                         {/* Suggested Chips */}
                         <div className="flex flex-wrap gap-2 mb-6 max-w-4xl mx-auto justify-center">
-                            <button onClick={() => handleChipClick("What documents do I need for France?")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                What documents do I need for France?
-                            </button>
-                            <button onClick={() => handleChipClick("Check my eligibility")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                Check my eligibility
-                            </button>
-                            <button onClick={() => handleChipClick("Cost of Tourist Visa")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                Cost of Tourist Visa
-                            </button>
-                            <button onClick={() => handleChipClick("Interview tips")} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                Interview tips
-                            </button>
+                            {suggestionChips.map((chip, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => handleChipClick(chip)}
+                                    className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all"
+                                >
+                                    {chip}
+                                </button>
+                            ))}
                         </div>
                         {/* Input Container */}
                         <div className="max-w-4xl mx-auto bg-background-dark/70 backdrop-blur-xl border border-primary/10 p-2 rounded-2xl shadow-2xl flex items-center gap-2">
