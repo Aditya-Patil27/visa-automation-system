@@ -573,3 +573,116 @@ async def get_job_results(job_id: str, admin: dict = Depends(get_current_admin))
         "stats": scheduler.get_job_stats(job_id)
     }
 
+
+# ==================== Notification Endpoints ====================
+
+class NotificationPreferences(BaseModel):
+    email_enabled: bool = True
+    sms_enabled: bool = False
+    phone: str = None
+    notification_types: list = []
+
+
+@router.get("/notifications/preferences")
+async def get_notification_preferences(user: dict = Depends(get_current_user)):
+    """Get user's notification preferences"""
+    from .notification_service import get_user_preferences
+    
+    user_email = user.get("sub", "")
+    prefs = await get_user_preferences(user_email)
+    return prefs
+
+
+@router.put("/notifications/preferences")
+async def update_notification_preferences(
+    preferences: NotificationPreferences,
+    user: dict = Depends(get_current_user)
+):
+    """Update user's notification preferences"""
+    from .notification_service import update_user_preferences
+    
+    user_email = user.get("sub", "")
+    result = await update_user_preferences(
+        user_email,
+        preferences.dict(exclude_none=True)
+    )
+    return result
+
+
+@router.get("/notifications/history")
+async def get_notification_history(
+    limit: int = 50,
+    user: dict = Depends(get_current_user)
+):
+    """Get user's notification history"""
+    from .notification_service import get_notification_history
+    
+    user_email = user.get("sub", "")
+    history = await get_notification_history(user_email, limit)
+    return {"notifications": history, "count": len(history)}
+
+
+# Admin notification endpoints
+@router.post("/notifications/send")
+async def send_manual_notification(
+    recipient_email: str,
+    subject: str,
+    body: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Send manual notification to a user (admin only)"""
+    from .notification_service import send_notification, NotificationRecipient, NotificationPayload, NotificationType, NotificationPriority
+    
+    recipient = NotificationRecipient(email=recipient_email, user_id=recipient_email)
+    payload = NotificationPayload(
+        subject=subject,
+        body=body,
+        priority=NotificationPriority.MEDIUM
+    )
+    
+    result = await send_notification(
+        recipient,
+        payload,
+        NotificationType.ADMIN_ALERT
+    )
+    
+    return {
+        "success": result.success,
+        "notification_id": result.notification_id,
+        "channels": result.channels,
+        "errors": result.errors
+    }
+
+
+@router.post("/notifications/trigger/status-change")
+async def trigger_status_change_notification(
+    user_email: str,
+    old_status: str,
+    new_status: str,
+    additional_info: str = "",
+    admin: dict = Depends(get_current_admin)
+):
+    """Trigger status change notification (admin only)"""
+    from .notification_service import notify_status_change
+    
+    result = await notify_status_change(user_email, old_status, new_status, additional_info)
+    return result
+
+
+@router.post("/notifications/trigger/appointment-reminder")
+async def trigger_appointment_reminder(
+    user_email: str,
+    appointment_date: str,
+    appointment_time: str,
+    location: str,
+    appointment_type: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Trigger appointment reminder notification (admin only)"""
+    from .notification_service import notify_appointment_reminder
+    
+    result = await notify_appointment_reminder(
+        user_email, appointment_date, appointment_time, location, appointment_type
+    )
+    return result
+
