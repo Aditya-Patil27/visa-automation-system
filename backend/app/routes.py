@@ -154,13 +154,38 @@ async def delete_visa(id: int, _: dict = Depends(get_current_admin)):
 
 @router.post("/chat")
 async def chat_endpoint(query: dict, user: dict = Depends(get_current_user)):
-    from .rag import handle_query
+    from .rag import get_rag_service
 
     text = query.get("question")
     if not text:
         raise HTTPException(status_code=400, detail="No question provided")
-    answer = await handle_query(text)
+    session_id = user.get("sub", "")
+    answer = await get_rag_service().invoke(text, session_id=session_id)
     return {"answer": answer}
+
+
+@router.post("/chat/stream")
+async def chat_stream(query: dict, user: dict = Depends(get_current_user)):
+    from .rag import get_rag_service
+
+    question = query.get("question")
+    if not question:
+        raise HTTPException(status_code=400, detail="No question provided")
+    session_id = user.get("sub", "")
+
+    async def event_generator():
+        async for chunk in get_rag_service().stream(question, session_id):
+            yield chunk
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---- semantic search ----
