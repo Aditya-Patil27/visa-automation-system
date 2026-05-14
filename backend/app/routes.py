@@ -16,8 +16,9 @@ from .models import (
     UserCreate, Token, VisaRequirement, VisaDB,
     UserTable, VisaTable, ProgressTable, WorkflowTable,
     ScraperLogTable, AppointmentTable, DocumentTable,
-    UserDocumentTable,
+    UserDocumentTable, AssessmentTable,
 )
+from .schemas import AssessmentStep
 from .security import (
     verify_password,
     get_password_hash,
@@ -186,6 +187,174 @@ async def chat_stream(query: dict, user: dict = Depends(get_current_user)):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---- assessment CRUD ----
+
+@router.post("/assessment")
+async def create_assessment(user: dict = Depends(get_current_user)):
+    async with async_session() as session:
+        row = AssessmentTable(
+            user_email=user.get("sub", ""),
+            status="draft",
+            current_step=1,
+            form_data=json.dumps({}),
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+    return {"id": row.id, "status": row.status, "current_step": row.current_step}
+
+
+@router.put("/assessment/{id}")
+async def update_assessment(id: int, step_data: AssessmentStep, user: dict = Depends(get_current_user)):
+    async with async_session() as session:
+        result = await session.execute(
+            select(AssessmentTable).where(
+                AssessmentTable.id == id,
+                AssessmentTable.user_email == user.get("sub", ""),
+            )
+        )
+        row = result.scalars().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        existing = json.loads(row.form_data) if row.form_data else {}
+        existing[str(step_data.step)] = step_data.data
+        row.form_data = json.dumps(existing)
+        row.current_step = step_data.step
+
+        await session.commit()
+        await session.refresh(row)
+
+    return {
+        "id": row.id,
+        "status": row.status,
+        "current_step": row.current_step,
+        "form_data": json.loads(row.form_data) if row.form_data else {},
+    }
+
+
+@router.get("/assessment/{id}")
+async def get_assessment(id: int, user: dict = Depends(get_current_user)):
+    async with async_session() as session:
+        result = await session.execute(
+            select(AssessmentTable).where(
+                AssessmentTable.id == id,
+                AssessmentTable.user_email == user.get("sub", ""),
+            )
+        )
+        row = result.scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+
+    return {
+        "id": row.id,
+        "status": row.status,
+        "current_step": row.current_step,
+        "form_data": json.loads(row.form_data) if row.form_data else {},
+        "eligibility_score": row.eligibility_score,
+        "is_eligible": bool(row.is_eligible) if row.is_eligible is not None else None,
+        "result": json.loads(row.result_details) if row.result_details and row.result_details != "{}" else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+@router.post("/assessment/{id}/submit")
+async def submit_assessment(id: int, user: dict = Depends(get_current_user)):
+    from .eligibility import assess_eligibility
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(AssessmentTable).where(
+                AssessmentTable.id == id,
+                AssessmentTable.user_email == user.get("sub", ""),
+            )
+        )
+        row = result.scalars().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+        if row.status == "submitted" or row.status == "completed":
+            return {
+                "id": row.id,
+                "status": row.status,
+                "eligibility_score": row.eligibility_score,
+                "is_eligible": bool(row.is_eligible) if row.is_eligible is not None else None,
+                "result": json.loads(row.result_details) if row.result_details else {},
+            }
+
+        form_data = json.loads(row.form_data) if row.form_data else {}
+
+        all_steps_data = {}
+        for step_key, step_val in form_data.items():
+            if isinstance(step_val, dict):
+                all_steps_data.update(step_val)
+
+        destination = all_steps_data.get("destination_country", "")
+        purpose = all_steps_data.get("purpose", "")
+
+        from sqlalchemy import select as sa_select
+        visa_result = await session.execute(
+            sa_select(VisaTable).where(
+                VisaTable.country.ilike(f"%{destination}%")
+            ).limit(1)
+        )
+        visa_record = visa_result.scalars().first()
+
+        if not visa_record:
+            return {
+                "id": row.id,
+                "status": "submitted",
+                "eligibility_score": 0,
+                "is_eligible": False,
+                "result": {
+                    "overall_eligible": False,
+                    "score": 0,
+                    "matched_requirements": [],
+                    "missing_requirements": ["No visa record found for destination country"],
+                    "actionable_feedback": ["We don't have visa requirements data for this destination yet."],
+                    "alternative_visa_suggestion": None,
+                },
+            }
+
+        assessment_data = {
+            "age": all_steps_data.get("age", 25),
+            "bank_balance": all_steps_data.get("bank_balance", 0),
+            "purpose": purpose,
+            "passport_number": all_steps_data.get("passport_number", ""),
+            "destination_country": destination,
+            "nationality": all_steps_data.get("nationality", ""),
+            "intended_stay_days": all_steps_data.get("intended_stay_days", 0),
+        }
+
+        try:
+            eligibility_result = await assess_eligibility(assessment_data, visa_record)
+        except Exception as e:
+            eligibility_result = {
+                "overall_eligible": False,
+                "score": 0,
+                "matched_requirements": [],
+                "missing_requirements": ["Assessment engine unavailable"],
+                "actionable_feedback": ["Our eligibility engine is temporarily unavailable. Please try again later."],
+                "alternative_visa_suggestion": None,
+                "error": str(e),
+            }
+
+        row.status = "submitted"
+        row.eligibility_score = eligibility_result.get("score", 0)
+        row.is_eligible = 1 if eligibility_result.get("overall_eligible", False) else 0
+        row.result_details = json.dumps(eligibility_result)
+        await session.commit()
+        await session.refresh(row)
+
+    return {
+        "id": row.id,
+        "status": row.status,
+        "eligibility_score": row.eligibility_score,
+        "is_eligible": bool(row.is_eligible) if row.is_eligible is not None else None,
+        "result": eligibility_result,
+    }
 
 
 # ---- semantic search ----

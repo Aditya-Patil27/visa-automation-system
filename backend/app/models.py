@@ -117,6 +117,21 @@ class UserDocumentTable(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class AssessmentTable(Base):
+    """Pre-assessment form data and eligibility results."""
+    __tablename__ = "assessments"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String, nullable=False, index=True)
+    status = Column(String, default="draft")              # draft, submitted, completed
+    current_step = Column(Integer, default=1)             # 1-4 for form wizard
+    form_data = Column(Text, default="{}")                # JSON dict — full form state across all steps
+    eligibility_score = Column(Integer, nullable=True)
+    is_eligible = Column(Integer, default=0)              # 0=False, 1=True
+    result_details = Column(Text, default="{}")           # JSON dict — eligibility breakdown per D-19
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # --------------- Pydantic schemas (API layer) ---------------
 
 class UserCreate(BaseModel):
