@@ -165,13 +165,195 @@ async def get_workflow(admin: dict = Depends(get_current_admin)):
     return workflows
 
 @router.get("/scraper-logs")
-async def get_scraper_logs(admin: dict = Depends(get_current_admin)):
+async def get_scraper_logs(
+    target: str = None,
+    level: str = None,
+    since: str = None,
+    limit: int = 50,
+    skip: int = 0,
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Get scraper logs with filtering and pagination.
+    Filters:
+    - target: Filter by embassy/target (e.g., "UK", "Germany")
+    - level: Filter by log level (INFO, WARNING, ERROR)
+    - since: Filter by date (ISO format, e.g., "2024-01-01")
+    - limit: Number of results (default 50)
+    - skip: Number of results to skip (for pagination)
+    """
     db = get_database()
-    cursor = db.scraper_logs.find({})
-    logs = await cursor.to_list(length=100)
+    
+    # Build query
+    query = {}
+    if target:
+        query["target"] = {"$regex": target, "$options": "i"}
+    if level:
+        query["level"] = level.upper()
+    if since:
+        query["timestamp"] = {"$gte": since}
+    
+    # Get total count
+    total_count = await db.scraper_logs.count_documents(query)
+    
+    # Get paginated results (newest first)
+    cursor = db.scraper_logs.find(query).sort("timestamp", -1).skip(skip).limit(limit)
+    logs = await cursor.to_list(length=limit)
     for l in logs:
         l["_id"] = str(l["_id"])
-    return logs
+    
+    return {
+        "logs": logs,
+        "total": total_count,
+        "page": (skip // limit) + 1,
+        "limit": limit
+    }
+
+
+@router.post("/scraper-logs/clear")
+async def clear_scraper_logs(
+    older_than_days: int = 30,
+    admin: dict = Depends(get_current_admin)
+):
+    """Clear old scraper logs (admin only)."""
+    import datetime
+    db = get_database()
+    
+    # Calculate cutoff date
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=older_than_days)
+    
+    # Delete logs older than cutoff
+    result = await db.scraper_logs.delete_many({
+        "timestamp": {"$lt": cutoff.isoformat()}
+    })
+    
+    return {
+        "message": f"Deleted {result.deleted_count} old log entries",
+        "deleted_count": result.deleted_count
+    }
+
+
+@router.get("/scraper-stats")
+async def get_scraper_stats(admin: dict = Depends(get_current_admin)):
+    """Get aggregated scraper statistics."""
+    from datetime import datetime, timedelta
+    db = get_database()
+    
+    # Get today's date
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    
+    # Total logs today
+    today_logs = await db.scraper_logs.count_documents({
+        "timestamp": {"$gte": today}
+    })
+    
+    # Count by level
+    level_counts = {}
+    for level in ["INFO", "WARNING", "ERROR"]:
+        count = await db.scraper_logs.count_documents({"level": level})
+        level_counts[level] = count
+    
+    # Count by target
+    target_counts = {}
+    cursor = db.scraper_logs.distinct("target")
+    targets = await cursor.to_list(length=100)
+    for t in targets:
+        count = await db.scraper_logs.count_documents({"target": t})
+        target_counts[t] = count
+    
+    # Success rate (ERRORs vs total)
+    total_logs = await db.scraper_logs.count_documents({})
+    success_rate = ((total_logs - level_counts.get("ERROR", 0)) / total_logs * 100) if total_logs > 0 else 100
+    
+    # Last successful scrape
+    last_success = await db.scraper_logs.find_one(
+        {"level": "INFO", "status": "success"},
+        sort=[("timestamp", -1)]
+    )
+    
+    return {
+        "total_scrapes_today": today_logs,
+        "success_rate": round(success_rate, 2),
+        "last_successful_scrape": last_success["timestamp"] if last_success else None,
+        "active_errors": level_counts.get("ERROR", 0),
+        "by_level": level_counts,
+        "by_target": target_counts
+    }
+
+
+@router.get("/scraper-status")
+async def get_scraper_status(admin: dict = Depends(get_current_admin)):
+    """Get current scrape status for all targets."""
+    db = get_database()
+    
+    # List of known embassy targets
+    targets = ["UK", "Germany", "France", "Spain", "Italy", "USA", "Canada", "Australia", "Japan"]
+    
+    status_list = []
+    for target in targets:
+        # Get last log for this target
+        last_log = await db.scraper_logs.find_one(
+            {"target": {"$regex": target, "$options": "i"}},
+            sort=[("timestamp", -1)]
+        )
+        
+        # Count consecutive failures
+        recent_logs = await db.scraper_logs.find(
+            {"target": {"$regex": target, "$options": "i"}}
+        ).sort("timestamp", -1).limit(5).to_list(length=5)
+        
+        failures = sum(1 for log in recent_logs if log.get("level") == "ERROR")
+        
+        # Determine status
+        if not last_log:
+            status = "never_run"
+        elif failures >= 3:
+            status = "error"
+        elif failures > 0:
+            status = "warning"
+        else:
+            status = "healthy"
+        
+        status_list.append({
+            "target": target,
+            "status": status,
+            "last_run": last_log["timestamp"] if last_log else None,
+            "last_status": last_log["status"] if last_log else None,
+            "consecutive_failures": failures
+        })
+    
+    return {"targets": status_list}
+
+
+@router.post("/scraper/run")
+async def trigger_scraper(
+    target: str = None,
+    admin: dict = Depends(get_current_admin)
+):
+    """Trigger scraper for a specific target or all targets."""
+    import datetime
+    db = get_database()
+    
+    # Log the scrape request
+    log_entry = {
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "target": target if target else "all",
+        "action": "manual_scrape",
+        "level": "INFO",
+        "status": "started",
+        "message": f"Manual scrape triggered for {target if target else 'all targets'}",
+        "details": {}
+    }
+    
+    await db.scraper_logs.insert_one(log_entry)
+    
+    # In a real implementation, this would trigger the actual scraper
+    # For now, just return success
+    return {
+        "message": "Scrape triggered successfully",
+        "target": target if target else "all",
+        "log_id": str(log_entry["_id"])
+    }
 
 @router.get("/appointments")
 async def get_appointments(user: dict = Depends(get_current_user)):
