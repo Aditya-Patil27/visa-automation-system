@@ -55,9 +55,33 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 
 | Plan | Objective | Wave | Status |
 |------|-----------|------|--------|
-| 05-scraper | Web scraping for embassy sites | 1 | ○ Pending |
-| 06-scheduler | Periodic update scheduling | 2 | ○ Pending |
-| 07-scraper-dashboard | Scraping logs and monitoring UI | 2 | ○ Pending |
+| 05-scraper | Web scraping for embassy sites | 1 | ✓ Planned |
+| 06-scheduler | Periodic update scheduling | 2 | ✓ Planned |
+| 07-scraper-dashboard | Scraping logs and monitoring UI | 2 | ✓ Planned |
+
+---
+
+## Phase 02: Embassy Scraping
+**Goal:** Automated data scraping from embassy websites to keep knowledge updated
+
+**Depends on:** Phase 01
+
+**Requirements:** REQ-20, REQ-21, REQ-22, NFR-03
+
+### Phase 02 Scope
+
+- Embassy website scraping pipeline
+- Scheduled periodic updates
+- Scraping monitoring dashboard
+- Error handling and retry logic
+
+### Plans
+
+| Plan | Objective | Wave | Status |
+|------|-----------|------|--------|
+| 05-scraper | Web scraping for embassy sites | 1 | ✓ Planned |
+| 06-scheduler | Periodic update scheduling | 2 | ✓ Planned |
+| 07-scraper-dashboard | Scraping logs and monitoring UI | 2 | ✓ Planned |
 
 ---
 
@@ -90,7 +114,7 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 | Phase | Status | Plans | Progress |
 |-------|--------|-------|----------|
 | 01 | ✓ Complete | 4/4 | 100% |
-| 02 | ○ Pending | 3 | - |
+| 02 | ○ Planned | 3/3 | 0% |
 | 03 | ○ Pending | 3 | - |
 
 ---
