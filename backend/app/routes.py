@@ -192,3 +192,132 @@ async def get_documents(user: dict = Depends(get_current_user)):
     docs["_id"] = str(docs["_id"])
     return docs
 
+
+# ==================== Scheduler Endpoints ====================
+
+# Global scheduler instance
+_scheduler = None
+
+
+def get_scheduler():
+    """Get or initialize the scheduler."""
+    global _scheduler
+    if _scheduler is None:
+        import sys
+        import os
+        # Add rag_pipeline to path
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from rag_pipeline.scheduler import EmbassyScheduler, SchedulerConfig
+        config = SchedulerConfig()
+        _scheduler = EmbassyScheduler(config)
+        _scheduler.start()
+    return _scheduler
+
+
+@router.get("/scheduler/jobs")
+async def list_scheduler_jobs(admin: dict = Depends(get_current_admin)):
+    """List all scheduled jobs."""
+    scheduler = get_scheduler()
+    return {
+        "jobs": scheduler.list_jobs()
+    }
+
+
+@router.post("/scheduler/jobs")
+async def add_scheduler_job(
+    job_config: dict,
+    admin: dict = Depends(get_current_admin)
+):
+    """Add a new scheduled job."""
+    scheduler = get_scheduler()
+    
+    job_id = job_config.get("job_id")
+    job_type = job_config.get("type")  # "cron" or "interval"
+    
+    if not job_id or not job_type:
+        raise HTTPException(
+            status_code=400,
+            detail="job_id and type are required"
+        )
+    
+    # Import the function to run
+    try:
+        if job_config.get("target") == "daily":
+            func = scheduler._run_daily_update
+        elif job_config.get("target") == "weekly":
+            func = scheduler._run_weekly_scan
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid target. Use 'daily' or 'weekly'"
+            )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Create trigger based on type
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+    
+    if job_type == "cron":
+        trigger = CronTrigger(
+            hour=job_config.get("hour", 2),
+            minute=job_config.get("minute", 0),
+            day_of_week=job_config.get("day_of_week", "*")
+        )
+    elif job_type == "interval":
+        trigger = IntervalTrigger(
+            days=job_config.get("days", 1),
+            hours=job_config.get("hours", 0),
+            minutes=job_config.get("minutes", 0)
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid job type. Use 'cron' or 'interval'"
+        )
+    
+    result = scheduler.add_job(
+        job_id=job_id,
+        func=func,
+        trigger=trigger,
+        name=job_config.get("name", job_id),
+        description=job_config.get("description", "")
+    )
+    
+    if result:
+        return {"message": "Job added successfully", "job_id": result}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to add job")
+
+
+@router.delete("/scheduler/jobs/{job_id}")
+async def remove_scheduler_job(job_id: str, admin: dict = Depends(get_current_admin)):
+    """Remove a scheduled job."""
+    scheduler = get_scheduler()
+    if scheduler.remove_job(job_id):
+        return {"message": "Job removed successfully", "job_id": job_id}
+    else:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+
+@router.post("/scheduler/jobs/{job_id}/run")
+async def trigger_scheduler_job(job_id: str, admin: dict = Depends(get_current_admin)):
+    """Trigger immediate run of a job."""
+    scheduler = get_scheduler()
+    if scheduler.run_job(job_id):
+        return {"message": "Job triggered successfully", "job_id": job_id}
+    else:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+
+@router.get("/scheduler/jobs/{job_id}/results")
+async def get_job_results(job_id: str, admin: dict = Depends(get_current_admin)):
+    """Get job execution history."""
+    scheduler = get_scheduler()
+    limit = 10
+    return {
+        "job_id": job_id,
+        "results": scheduler.get_job_results(job_id, limit),
+        "stats": scheduler.get_job_stats(job_id)
+    }
+
