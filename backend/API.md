@@ -227,6 +227,125 @@ Get admin dashboard statistics.
 
 ---
 
+## Scheduler Management
+
+### GET /scheduler/jobs
+
+List all scheduled jobs.
+
+**Authorization:** Bearer token (admin only)
+
+**Response:**
+```json
+{
+  "jobs": [
+    {
+      "id": "daily_update",
+      "name": "Daily Embassy Update",
+      "trigger": "cron",
+      "next_run_time": "2024-01-15T02:00:00Z",
+      "enabled": true
+    }
+  ]
+}
+```
+
+---
+
+### POST /scheduler/jobs
+
+Create a new scheduled job.
+
+**Authorization:** Bearer token (admin only)
+
+**Request Body:**
+```json
+{
+  "name": "My Custom Job",
+  "func": "rag_pipeline.indexer.index_all",
+  "trigger": "interval",
+  "hours": 6,
+  "enabled": true
+}
+```
+
+**Supported Triggers:**
+- `interval` - Run every N hours/days
+- `cron` - Run at specific times
+
+**Response:**
+```json
+{
+  "id": "custom_job_001",
+  "name": "My Custom Job",
+  "next_run_time": "2024-01-15T08:00:00Z"
+}
+```
+
+---
+
+### DELETE /scheduler/jobs/{job_id}
+
+Remove a scheduled job.
+
+**Authorization:** Bearer token (admin only)
+
+**Response:**
+```json
+{
+  "message": "Job deleted successfully"
+}
+```
+
+---
+
+### POST /scheduler/jobs/{job_id}/run
+
+Trigger immediate execution of a job.
+
+**Authorization:** Bearer token (admin only)
+
+**Response:**
+```json
+{
+  "run_id": "run_001",
+  "status": "started",
+  "job_id": "daily_update"
+}
+```
+
+---
+
+### GET /scheduler/jobs/{job_id}/results
+
+Get execution results for a specific job.
+
+**Authorization:** Bearer token (admin only)
+
+**Query Parameters:**
+- `limit` (optional, default 10) - Number of results to return
+- `status` (optional) - Filter by status (completed/failed/running)
+
+**Response:**
+```json
+{
+  "job_id": "daily_update",
+  "results": [
+    {
+      "run_id": "run_001",
+      "start_time": "2024-01-15T02:00:00Z",
+      "end_time": "2024-01-15T02:15:30Z",
+      "status": "completed",
+      "targets_scraped": 4,
+      "documents_added": 150,
+      "errors": 0
+    }
+  ]
+}
+```
+
+---
+
 ## Error Responses
 
 | Status Code | Description |
