@@ -1,6 +1,6 @@
 # Roadmap: Visa Automation System
 
-**Status:** Planning  
+**Status:** In Progress  
 **Last Activity:** 2026-05-14  
 **Total Phases:** 3
 
@@ -14,6 +14,8 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 **Goal:** User authentication, chatbot, admin dashboard, basic RAG pipeline
 
 **Depends on:** None
+
+**Status:** ✓ Complete (2026-05-14)
 
 **Requirements:** REQ-01, REQ-02, REQ-03, REQ-04, REQ-05, REQ-06, REQ-07, REQ-08, REQ-09, REQ-10, REQ-11, REQ-12, REQ-13, REQ-14, REQ-15, REQ-16, REQ-17, REQ-18, REQ-19, NFR-01, NFR-02, NFR-04, NFR-05, NFR-06, NFR-07, NFR-09, NFR-10
 
@@ -30,10 +32,10 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 
 | Plan | Objective | Wave | Status |
 |------|-----------|------|--------|
-| 01-auth | Authentication system (register/login/JWT) | 1 | ✓ Planned |
-| 02-chatbot | Employee chatbot with RAG integration | 1 | ✓ Planned |
-| 03-admin-dashboard | Admin content management dashboard | 2 | ✓ Planned |
-| 04-visa-crd | Visa requirement CRUD API endpoints | 2 | ✓ Planned |
+| 01-auth | Authentication system (register/login/JWT) | 1 | ✓ Complete |
+| 02-chatbot | Employee chatbot with RAG integration | 1 | ✓ Complete |
+| 03-admin-dashboard | Admin content management dashboard | 2 | ✓ Complete |
+| 04-visa-crd | Visa requirement CRUD API endpoints | 2 | ✓ Complete |
 
 ---
 
@@ -41,6 +43,8 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 **Goal:** Automated data scraping from embassy websites to keep knowledge updated
 
 **Depends on:** Phase 01
+
+**Status:** ✓ Complete (2026-05-14)
 
 **Requirements:** REQ-20, REQ-21, REQ-22, NFR-03
 
@@ -55,33 +59,9 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 
 | Plan | Objective | Wave | Status |
 |------|-----------|------|--------|
-| 05-scraper | Web scraping for embassy sites | 1 | ✓ Planned |
-| 06-scheduler | Periodic update scheduling | 2 | ✓ Planned |
-| 07-scraper-dashboard | Scraping logs and monitoring UI | 2 | ✓ Planned |
-
----
-
-## Phase 02: Embassy Scraping
-**Goal:** Automated data scraping from embassy websites to keep knowledge updated
-
-**Depends on:** Phase 01
-
-**Requirements:** REQ-20, REQ-21, REQ-22, NFR-03
-
-### Phase 02 Scope
-
-- Embassy website scraping pipeline
-- Scheduled periodic updates
-- Scraping monitoring dashboard
-- Error handling and retry logic
-
-### Plans
-
-| Plan | Objective | Wave | Status |
-|------|-----------|------|--------|
-| 05-scraper | Web scraping for embassy sites | 1 | ✓ Planned |
-| 06-scheduler | Periodic update scheduling | 2 | ✓ Planned |
-| 07-scraper-dashboard | Scraping logs and monitoring UI | 2 | ✓ Planned |
+| 05-scraper | Web scraping for embassy sites | 1 | ✓ Complete |
+| 06-scheduler | Periodic update scheduling | 2 | ✓ Complete |
+| 07-scraper-dashboard | Scraping logs and monitoring UI | 2 | ✓ Complete |
 
 ---
 
@@ -114,8 +94,8 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 | Phase | Status | Plans | Progress |
 |-------|--------|-------|----------|
 | 01 | ✓ Complete | 4/4 | 100% |
-| 02 | ○ Planned | 3/3 | 0% |
-| 03 | ○ Pending | 3 | - |
+| 02 | ✓ Complete | 3/3 | 100% |
+| 03 | ○ Pending | 3 | 0% |
 
 ---
 
