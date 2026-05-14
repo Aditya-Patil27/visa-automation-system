@@ -78,6 +78,11 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
             "Deterministic rules failed (%d/%d): %s",
             len(failed_rules), len(rule_checks), failed_rules,
         )
+        # Step 3 — Deterministic failure: return detailed breakdown with alternative visas
+        alt_visas = await get_alternative_visas(
+            visa_record.get_alternative_visa_ids()
+        ) if hasattr(visa_record, 'get_alternative_visa_ids') else []
+
         return {
             "overall_eligible": False,
             "score": score,
@@ -89,6 +94,7 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
             ],
             "actionable_feedback": actionable,
             "alternative_visa_suggestion": None,
+            "alternative_visas": alt_visas,
             "rule_results": {k: v["passed"] for k, v in rule_checks.items()},
         }
 
@@ -133,6 +139,7 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
                 "missing_requirements": llm_result.missing_requirements,
                 "actionable_feedback": llm_result.actionable_feedback,
                 "alternative_visa_suggestion": llm_result.alternative_visa_suggestion,
+                "alternative_visas": [],
                 "rule_results": {k: v["passed"] for k, v in rule_checks.items()},
             }
         else:
@@ -151,5 +158,53 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
         "missing_requirements": [],
         "actionable_feedback": [],
         "alternative_visa_suggestion": None,
+        "alternative_visas": [],
         "rule_results": {k: v["passed"] for k, v in rule_checks.items()},
     }
+
+
+async def get_alternative_visas(alternative_visa_ids: list, session=None) -> list:
+    """Look up alternative visa suggestions by ID from VisaTable.
+
+    Per D-17: Rules-based approach using predefined alternative_visa_ids
+    on the VisaRecord (NOT LLM-generated). Returns list of dicts with
+    id, country, visa_type, description for each alternative.
+    Per D-18: Enhanced with LLM reasoning in a later iteration — deferred.
+
+    Returns empty list if no alternatives found or any error occurs.
+    """
+    if not alternative_visa_ids:
+        return []
+
+    from sqlalchemy import select
+    from .models import VisaTable
+
+    try:
+        if session is None:
+            from .database import async_session
+            async with async_session() as local_session:
+                result = await local_session.execute(
+                    select(VisaTable).where(VisaTable.id.in_(alternative_visa_ids))
+                )
+                rows = result.scalars().all()
+        else:
+            result = await session.execute(
+                select(VisaTable).where(VisaTable.id.in_(alternative_visa_ids))
+            )
+            rows = result.scalars().all()
+
+        return [
+            {
+                "id": row.id,
+                "country": row.country,
+                "visa_type": row.visa_type,
+                "description": row.description or f"{row.visa_type} for {row.country}",
+                "processing_time": row.processing_time,
+                "fee": row.fee,
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to get alternative visas: {e}")
+        return []
