@@ -89,7 +89,7 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 
 | Phase | Status | Plans | Progress |
 |-------|--------|-------|----------|
-| 01 | ○ Planned | 4/4 | 0% |
+| 01 | ✓ Complete | 4/4 | 100% |
 | 02 | ○ Pending | 3 | - |
 | 03 | ○ Pending | 3 | - |
 
