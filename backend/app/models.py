@@ -1,7 +1,7 @@
 import json
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional
-from sqlalchemy import Column, Integer, String, Text, LargeBinary, DateTime
+from sqlalchemy import Column, Integer, String, Text, Float, LargeBinary, DateTime
 from datetime import datetime
 from .database import Base
 
@@ -24,11 +24,41 @@ class VisaTable(Base):
     documents = Column(Text, default="[]")        # JSON list
     processing_time = Column(String, nullable=True)
 
+    # NEW: Eligibility criteria columns
+    min_age = Column(Integer, default=18)
+    max_age = Column(Integer, nullable=True)
+    min_balance = Column(Float, default=0.0)
+    allowed_purposes = Column(Text, default='["tourism"]')      # JSON list
+    eligibility_rules = Column(Text, default="{}")               # JSON dict
+    description = Column(Text, default="")
+    validity = Column(String, nullable=True)
+    max_stay_days = Column(Integer, nullable=True)
+    fee = Column(Float, nullable=True)
+    alternative_visa_ids = Column(Text, default="[]")            # JSON list
+
     def set_documents(self, docs: list):
         self.documents = json.dumps(docs)
 
     def get_documents(self) -> list:
         return json.loads(self.documents) if self.documents else []
+
+    def set_allowed_purposes(self, purposes: list):
+        self.allowed_purposes = json.dumps(purposes)
+
+    def get_allowed_purposes(self) -> list:
+        return json.loads(self.allowed_purposes) if self.allowed_purposes else []
+
+    def set_eligibility_rules(self, rules: dict):
+        self.eligibility_rules = json.dumps(rules)
+
+    def get_eligibility_rules(self) -> dict:
+        return json.loads(self.eligibility_rules) if self.eligibility_rules else {}
+
+    def set_alternative_visa_ids(self, ids: list):
+        self.alternative_visa_ids = json.dumps(ids)
+
+    def get_alternative_visa_ids(self) -> list:
+        return json.loads(self.alternative_visa_ids) if self.alternative_visa_ids else []
 
 
 class ProgressTable(Base):
@@ -109,6 +139,16 @@ class VisaRequirement(BaseModel):
     visa_type: str
     documents: List[str]
     processing_time: Optional[str] = None
+    min_age: int = 18
+    max_age: Optional[int] = None
+    min_balance: float = 0.0
+    allowed_purposes: List[str] = ["tourism"]
+    eligibility_rules: dict = {}
+    description: str = ""
+    validity: Optional[str] = None
+    max_stay_days: Optional[int] = None
+    fee: Optional[float] = None
+    alternative_visa_ids: List[int] = []
 
 
 class VisaDB(VisaRequirement):
