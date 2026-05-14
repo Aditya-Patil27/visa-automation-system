@@ -1,42 +1,189 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 const VisaKnowledgeManagement = () => {
     const [visas, setVisas] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterCountry, setFilterCountry] = useState('all');
+    const [filterVisaType, setFilterVisaType] = useState('all');
+    const [showModal, setShowModal] = useState(false);
+    const [modalMode, setModalMode] = useState('add'); // 'add' | 'edit' | 'delete'
+    const [selectedVisa, setSelectedVisa] = useState(null);
+    const [formData, setFormData] = useState({
+        country: '',
+        visa_type: '',
+        documents: '',
+        processing_time: ''
+    });
+    const [toast, setToast] = useState(null);
     const navigate = useNavigate();
 
-    useEffect(() => {
-        const fetchVisas = async () => {
-            const token = localStorage.getItem('access_token');
-            if (!token) {
+    const showToast = (message, type = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+    };
+
+    const fetchVisas = async () => {
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+            navigate('/login');
+            return;
+        }
+
+        try {
+            const res = await fetch('http://localhost:8000/visa', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setVisas(data);
+            } else if (res.status === 401) {
                 navigate('/login');
-                return;
             }
+        } catch (err) {
+            console.error("Failed to fetch visas", err);
+            showToast('Failed to fetch visa requirements', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            try {
-                const res = await fetch('http://localhost:8000/visa', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setVisas(data);
-                } else if (res.status === 401) {
-                    navigate('/login');
-                }
-            } catch (err) {
-                console.error("Failed to fetch visas", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-
+    useEffect(() => {
         fetchVisas();
     }, [navigate]);
+
+    const countries = useMemo(() => {
+        const unique = [...new Set(visas.map(v => v.country))];
+        return unique.sort();
+    }, [visas]);
+
+    const visaTypes = useMemo(() => {
+        const unique = [...new Set(visas.map(v => v.visa_type))];
+        return unique.sort();
+    }, [visas]);
+
+    const filteredVisas = useMemo(() => {
+        return visas.filter(visa => {
+            const matchesSearch = searchQuery === '' ||
+                visa.country.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                visa.visa_type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                visa.documents?.some(d => d.toLowerCase().includes(searchQuery.toLowerCase()));
+
+            const matchesCountry = filterCountry === 'all' || visa.country === filterCountry;
+            const matchesType = filterVisaType === 'all' || visa.visa_type === filterVisaType;
+
+            return matchesSearch && matchesCountry && matchesType;
+        });
+    }, [visas, searchQuery, filterCountry, filterVisaType]);
+
+    const clearFilters = () => {
+        setSearchQuery('');
+        setFilterCountry('all');
+        setFilterVisaType('all');
+    };
+
+    const hasActiveFilters = searchQuery !== '' || filterCountry !== 'all' || filterVisaType !== 'all';
+
+    const openAddModal = () => {
+        setModalMode('add');
+        setFormData({ country: '', visa_type: '', documents: '', processing_time: '' });
+        setShowModal(true);
+    };
+
+    const openEditModal = (visa) => {
+        setModalMode('edit');
+        setSelectedVisa(visa);
+        setFormData({
+            country: visa.country,
+            visa_type: visa.visa_type,
+            documents: visa.documents?.join(', ') || '',
+            processing_time: visa.processing_time || ''
+        });
+        setShowModal(true);
+    };
+
+    const openDeleteModal = (visa) => {
+        setModalMode('delete');
+        setSelectedVisa(visa);
+        setShowModal(true);
+    };
+
+    const handleSubmit = async () => {
+        const token = localStorage.getItem('access_token');
+        const documentsArray = formData.documents.split(',').map(d => d.trim()).filter(d => d);
+
+        if (!formData.country || !formData.visa_type || documentsArray.length === 0) {
+            showToast('Please fill in all required fields', 'error');
+            return;
+        }
+
+        const body = {
+            country: formData.country,
+            visa_type: formData.visa_type,
+            documents: documentsArray,
+            processing_time: formData.processing_time || undefined
+        };
+
+        try {
+            let res;
+            if (modalMode === 'add') {
+                res = await fetch('http://localhost:8000/visa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(body)
+                });
+            } else {
+                res = await fetch(`http://localhost:8000/visa/${selectedVisa._id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify(body)
+                });
+            }
+
+            if (res.ok) {
+                showToast(modalMode === 'add' ? 'Visa requirement added successfully' : 'Visa requirement updated successfully');
+                setShowModal(false);
+                fetchVisas();
+            } else {
+                showToast('Failed to save visa requirement', 'error');
+            }
+        } catch (err) {
+            showToast('Error saving visa requirement', 'error');
+        }
+    };
+
+    const handleDelete = async () => {
+        const token = localStorage.getItem('access_token');
+        try {
+            const res = await fetch(`http://localhost:8000/visa/${selectedVisa._id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (res.ok) {
+                showToast('Visa requirement deleted successfully');
+                setShowModal(false);
+                fetchVisas();
+            } else {
+                showToast('Failed to delete visa requirement', 'error');
+            }
+        } catch (err) {
+            showToast('Error deleting visa requirement', 'error');
+        }
+    };
+
     return (
         <div className="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased min-h-screen">
+            {toast && (
+                <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg ${
+                    toast.type === 'error' ? 'bg-rose-500' : 'bg-emerald-500'
+                } text-white font-medium`}>
+                    {toast.message}
+                </div>
+            )}
+
             <div className="flex h-screen overflow-hidden">
-                {/* Sidebar */}
                 <aside className="w-72 bg-primary/5 backdrop-blur-sm border-r border-slate-800 flex flex-col z-20">
                     <div className="p-6 mb-4 flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-slate-900">
@@ -82,16 +229,14 @@ const VisaKnowledgeManagement = () => {
                                 <img alt="User Avatar" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAKrsgcRix7gP94Prz2poYFYjqLVRVjo23gf-F0D1XRJ7OeW2yvY0yJNDctpmzvqohaG3-x_-hmNfkuIU0pBhl4shDoiCvaAsXC1oecmgYzVeP494922ArEcbr5ukP0uUIgLhq5Q6XECsANUabLGYeI7PnqTntnJ22puHPNxCQeOOonLfO1asrt5PrUOvQdl1B1SIZrtZRo-B3SAiD2z-RHSt8ywJ09_jyymYLIgcJ4Y5I4IdMtUZ1P4TbLkC5-Tzeg7npNtOeEnnnS" />
                             </div>
                             <div className="overflow-hidden">
-                                <p className="text-sm font-semibold truncate">Alex Rivera</p>
-                                <p className="text-xs text-slate-500 truncate">Super Admin</p>
+                                <p className="text-sm font-semibold truncate">Admin User</p>
+                                <p className="text-xs text-slate-500 truncate">Administrator</p>
                             </div>
-                            <span onClick={() => console.log('Logout Clicked')} className="material-symbols-outlined text-slate-500 ml-auto cursor-pointer hover:text-primary">logout</span>
+                            <span onClick={() => localStorage.removeItem('access_token') || navigate('/login')} className="material-symbols-outlined text-slate-500 ml-auto cursor-pointer hover:text-primary">logout</span>
                         </div>
                     </div>
                 </aside>
-                {/* Main Content */}
                 <main className="flex-1 flex flex-col overflow-y-auto">
-                    {/* Header */}
                     <header className="h-20 border-b border-slate-800 flex items-center justify-between px-8 sticky top-0 bg-background-dark/80 backdrop-blur-md z-10">
                         <div className="flex items-center gap-4">
                             <h2 className="text-2xl font-bold">Knowledge Management</h2>
@@ -100,104 +245,91 @@ const VisaKnowledgeManagement = () => {
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300">
                                 <span className="material-symbols-outlined text-sm">notifications</span>
-                                <span className="text-xs font-semibold">12 Alerts</span>
+                                <span className="text-xs font-semibold">{visas.length} Requirements</span>
                             </div>
-                            <button onClick={() => console.log('New Requirement Clicked')} className="bg-primary hover:bg-primary/90 text-background-dark font-bold py-2 px-4 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-primary/20">
+                            <button onClick={openAddModal} className="bg-primary hover:bg-primary/90 text-background-dark font-bold py-2 px-4 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-primary/20">
                                 <span className="material-symbols-outlined text-[20px]">add</span>
                                 New Requirement
                             </button>
                         </div>
                     </header>
-                    <div className="p-8 space-y-8 max-w-[1400px] mx-auto w-full">
-                        {/* Statistics */}
+                    <div className="p-8 space-y-8 max-w-[1600px] mx-auto w-full">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             <div className="bg-white/5 backdrop-blur-sm border border-white/5 p-6 rounded-2xl hover:bg-white/10 hover:border-primary/30 transition-all duration-200">
                                 <div className="flex justify-between items-start mb-4">
                                     <div className="p-3 rounded-xl bg-primary/10 text-primary">
                                         <span className="material-symbols-outlined text-2xl">description</span>
                                     </div>
-                                    <span className="text-emerald-500 text-sm font-bold flex items-center">+12%<span className="material-symbols-outlined text-sm">trending_up</span></span>
                                 </div>
                                 <p className="text-slate-400 text-sm font-medium">Total Requirements</p>
                                 <h3 className="text-3xl font-bold mt-1">{loading ? "..." : visas.length}</h3>
                             </div>
                             <div className="bg-white/5 backdrop-blur-sm border border-white/5 p-6 rounded-2xl hover:bg-white/10 hover:border-primary/30 transition-all duration-200">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-3 rounded-xl bg-primary/10 text-primary">
-                                        <span className="material-symbols-outlined text-2xl">public</span>
-                                    </div>
-                                    <span className="text-slate-400 text-sm font-bold flex items-center">Stable<span className="material-symbols-outlined text-sm ml-1">horizontal_rule</span></span>
+                                <div className="p-3 rounded-xl bg-primary/10 text-primary">
+                                    <span className="material-symbols-outlined text-2xl">public</span>
                                 </div>
-                                <p className="text-slate-400 text-sm font-medium">Countries Covered</p>
-                                <h3 className="text-3xl font-bold mt-1">195</h3>
+                                <p className="text-slate-400 text-sm font-medium mt-4">Countries Covered</p>
+                                <h3 className="text-3xl font-bold mt-1">{loading ? "..." : countries.length}</h3>
                             </div>
                             <div className="bg-white/5 backdrop-blur-sm border border-white/5 p-6 rounded-2xl hover:bg-white/10 hover:border-primary/30 transition-all duration-200">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-3 rounded-xl bg-primary/10 text-primary">
-                                        <span className="material-symbols-outlined text-2xl">history</span>
-                                    </div>
-                                    <span className="text-emerald-500 text-sm font-bold flex items-center">+5%<span className="material-symbols-outlined text-sm">trending_up</span></span>
+                                <div className="p-3 rounded-xl bg-primary/10 text-primary">
+                                    <span className="material-symbols-outlined text-2xl">category</span>
                                 </div>
-                                <p className="text-slate-400 text-sm font-medium">Recent Updates</p>
-                                <h3 className="text-3xl font-bold mt-1">24 <span className="text-sm font-normal text-slate-500 uppercase tracking-tight">today</span></h3>
+                                <p className="text-slate-400 text-sm font-medium mt-4">Visa Types</p>
+                                <h3 className="text-3xl font-bold mt-1">{loading ? "..." : visaTypes.length}</h3>
                             </div>
                             <div className="bg-white/5 backdrop-blur-sm border border-white/5 p-6 rounded-2xl border-l-4 border-l-emerald-500/50 hover:bg-white/10 hover:border-primary/30 transition-all duration-200">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-3 rounded-xl bg-primary/10 text-primary">
-                                        <span className="material-symbols-outlined text-2xl">analytics</span>
-                                    </div>
-                                    <span className="text-rose-500 text-sm font-bold flex items-center">-0.1%<span className="material-symbols-outlined text-sm">trending_down</span></span>
+                                <div className="p-3 rounded-xl bg-primary/10 text-primary">
+                                    <span className="material-symbols-outlined text-2xl">analytics</span>
                                 </div>
-                                <p className="text-slate-400 text-sm font-medium">Data Source Health</p>
+                                <p className="text-slate-400 text-sm font-medium mt-4">Data Source Health</p>
                                 <h3 className="text-3xl font-bold mt-1">99.9%</h3>
                             </div>
                         </div>
-                        {/* Filters & Search */}
                         <div className="bg-primary/5 backdrop-blur-sm border border-white/5 p-4 rounded-2xl flex flex-col lg:flex-row gap-4">
                             <div className="relative flex-1">
                                 <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-                                <input className="w-full bg-slate-900/50 border-slate-700 rounded-xl pl-12 pr-4 py-3 text-slate-100 placeholder:text-slate-500 focus:ring-primary focus:border-primary" placeholder="Search by country, visa type, or keyword..." type="text" />
+                                <input
+                                    className="w-full bg-slate-900/50 border-slate-700 rounded-xl pl-12 pr-4 py-3 text-slate-100 placeholder:text-slate-500 focus:ring-primary focus:border-primary"
+                                    placeholder="Search by country, visa type, or keyword..."
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
                             </div>
-                            <div className="flex gap-4">
-                                <select className="bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 focus:ring-primary min-w-[160px]">
-                                    <option>All Visa Types</option>
-                                    <option>Tourist (L)</option>
-                                    <option>Business (M)</option>
-                                    <option>Student (X)</option>
-                                    <option>Work (Z)</option>
+                            <div className="flex gap-4 flex-wrap">
+                                <select className="bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 focus:ring-primary min-w-[160px]" value={filterCountry} onChange={(e) => setFilterCountry(e.target.value)}>
+                                    <option value="all">All Countries</option>
+                                    {countries.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
-                                <select className="bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 focus:ring-primary min-w-[160px]">
-                                    <option>Region: All</option>
-                                    <option>Europe</option>
-                                    <option>Asia</option>
-                                    <option>North America</option>
-                                    <option>Africa</option>
+                                <select className="bg-slate-900/50 border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 focus:ring-primary min-w-[160px]" value={filterVisaType} onChange={(e) => setFilterVisaType(e.target.value)}>
+                                    <option value="all">All Visa Types</option>
+                                    {visaTypes.map(t => <option key={t} value={t}>{t}</option>)}
                                 </select>
-                                <button onClick={() => console.log('More Filters Clicked')} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-100 px-4 py-3 rounded-xl flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-[20px]">filter_list</span>
-                                    More Filters
-                                </button>
+                                {hasActiveFilters && (
+                                    <button onClick={clearFilters} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-100 px-4 py-3 rounded-xl flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-[20px]">clear</span>
+                                        Clear Filters
+                                    </button>
+                                )}
                             </div>
                         </div>
-                        {/* Requirement Cards Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
-                            {visas.map((visa, idx) => (
-                                <div key={visa.id || idx} className="bg-white/5 backdrop-blur-sm border border-white/5 hover:bg-white/10 hover:border-primary/30 transition-all duration-200 rounded-2xl overflow-hidden flex flex-col">
-                                    <div className="h-32 relative bg-gradient-to-br from-primary/20 to-transparent">
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <span className="text-6xl">🌍</span>
-                                        </div>
+                            {filteredVisas.map((visa, idx) => (
+                                <div key={visa._id || idx} className="bg-white/5 backdrop-blur-sm border border-white/5 hover:bg-white/10 hover:border-primary/30 transition-all duration-200 rounded-2xl overflow-hidden flex flex-col">
+                                    <div className="h-24 relative bg-gradient-to-br from-primary/20 to-transparent flex items-center justify-center">
+                                        <span className="text-5xl">{visa.country === 'USA' ? '🇺🇸' : visa.country === 'UK' ? '🇬🇧' : '🌍'}</span>
                                         <div className="absolute top-4 right-4 bg-background-dark/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-primary uppercase tracking-wider">{visa.country}</div>
                                     </div>
                                     <div className="p-6 flex-1 flex flex-col">
                                         <div className="flex justify-between items-start mb-2">
                                             <h4 className="text-lg font-bold truncate pr-3">{visa.country}</h4>
-                                            <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700 whitespace-nowrap">{visa.visa_type}</span>
+                                            <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 whitespace-nowrap">{visa.visa_type}</span>
                                         </div>
-                                        <p className="text-slate-400 text-sm mb-6 line-clamp-2 leading-relaxed">
+                                        <p className="text-slate-400 text-sm mb-4 line-clamp-2 leading-relaxed">
                                             {visa.documents?.join(', ')}
                                         </p>
-                                        <div className="mt-auto space-y-4">
+                                        <div className="mt-auto space-y-3">
                                             <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
                                                 <div className="flex items-center gap-1.5">
                                                     <span className="material-symbols-outlined text-[14px]">schedule</span>
@@ -205,11 +337,13 @@ const VisaKnowledgeManagement = () => {
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-2">
-                                                <button aria-label="Edit Visa" onClick={() => console.log('Edit Visa')} className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg flex items-center justify-center text-slate-300">
+                                                <button onClick={() => openEditModal(visa)} className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg flex items-center justify-center text-slate-300 transition-colors">
                                                     <span className="material-symbols-outlined text-[20px]">edit</span>
+                                                    <span className="ml-1 text-sm">Edit</span>
                                                 </button>
-                                                <button aria-label="Delete Visa" onClick={() => console.log('Delete Visa')} className="bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 py-2 rounded-lg flex items-center justify-center text-slate-300 transition-colors">
+                                                <button onClick={() => openDeleteModal(visa)} className="bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 py-2 rounded-lg flex items-center justify-center text-slate-300 transition-colors">
                                                     <span className="material-symbols-outlined text-[20px]">delete</span>
+                                                    <span className="ml-1 text-sm">Delete</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -217,14 +351,14 @@ const VisaKnowledgeManagement = () => {
                                 </div>
                             ))}
 
-                            {visas.length === 0 && !loading && (
+                            {filteredVisas.length === 0 && !loading && (
                                 <div className="col-span-full text-center py-12 text-slate-500">
-                                    <span className="material-symbols-outlined text-4xl mb-4 opacity-50">data_alert</span>
-                                    <p>No visa requirements found in the database.</p>
+                                    <span className="material-symbols-outlined text-4xl mb-4 opacity-50">search_off</span>
+                                    <p className="text-lg">No visa requirements found</p>
+                                    {hasActiveFilters && <p className="text-sm mt-2">Try adjusting your search or filters</p>}
                                 </div>
                             )}
-                            {/* Add New Placeholder */}
-                            <div className="border-2 border-dashed border-slate-800 hover:border-primary/50 hover:bg-primary/5 rounded-2xl flex flex-col items-center justify-center p-8 transition-all group cursor-pointer">
+                            <div onClick={openAddModal} className="border-2 border-dashed border-slate-800 hover:border-primary/50 hover:bg-primary/5 rounded-2xl flex flex-col items-center justify-center p-8 transition-all group cursor-pointer min-h-[280px]">
                                 <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 group-hover:bg-primary group-hover:text-background-dark transition-all">
                                     <span className="material-symbols-outlined text-3xl">add</span>
                                 </div>
@@ -233,71 +367,60 @@ const VisaKnowledgeManagement = () => {
                         </div>
                     </div>
                 </main>
-                {/* Right Side Panel (Hidden by default, could be triggered by Add button) */}
-                <div className="w-96 bg-primary/5 backdrop-blur-sm border-l border-slate-800 hidden 2xl:flex flex-col z-20">
-                    <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-                        <h3 className="font-bold text-lg">System Insights</h3>
-                        <span onClick={() => console.log('Close Panel Clicked')} className="material-symbols-outlined text-slate-500 hover:text-white cursor-pointer">close</span>
-                    </div>
-                    <div className="p-6 space-y-6">
-                        <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Recent Activity</h4>
-                            <div className="space-y-4">
-                                <div className="flex gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shadow-[0_0_8px_rgba(13,204,242,0.8)]"></div>
-                                    <div>
-                                        <p className="text-sm font-medium">Brazil Tourist Visa updated</p>
-                                        <p className="text-xs text-slate-500">2 minutes ago by Alex</p>
-                                    </div>
-                                </div>
-                                <div className="flex gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 shadow-[0_0_8px_rgba(245,158,11,0.8)]"></div>
-                                    <div>
-                                        <p className="text-sm font-medium">New Requirement: Kenya E-Visa</p>
-                                        <p className="text-xs text-slate-500">1 hour ago by System</p>
-                                    </div>
-                                </div>
-                                <div className="flex gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
-                                    <div>
-                                        <p className="text-sm font-medium">US B1/B2 verified</p>
-                                        <p className="text-xs text-slate-500">3 hours ago by Sarah</p>
-                                    </div>
-                                </div>
-                            </div>
+            </div>
+
+            {showModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+                        <div className="p-6 border-b border-slate-700 flex justify-between items-center">
+                            <h3 className="text-xl font-bold">
+                                {modalMode === 'add' && 'Add New Visa Requirement'}
+                                {modalMode === 'edit' && 'Edit Visa Requirement'}
+                                {modalMode === 'delete' && 'Delete Visa Requirement'}
+                            </h3>
+                            <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">
+                                <span className="material-symbols-outlined">close</span>
+                            </button>
                         </div>
-                        <div className="space-y-4 pt-4">
-                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Data Health Index</h4>
-                            <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs text-slate-400">Database Consistency</span>
-                                    <span className="text-xs font-bold text-primary">98%</span>
+                        <div className="p-6">
+                            {modalMode === 'delete' ? (
+                                <div className="text-center">
+                                    <p className="text-slate-300 mb-6">Are you sure you want to delete <strong className="text-white">{selectedVisa?.country} - {selectedVisa?.visa_type}</strong>? This action cannot be undone.</p>
+                                    <div className="flex gap-4 justify-center">
+                                        <button onClick={() => setShowModal(false)} className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors">Cancel</button>
+                                        <button onClick={handleDelete} className="px-6 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 transition-colors">Delete</button>
+                                    </div>
                                 </div>
-                                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                    <div className="bg-primary h-full rounded-full" style={{ width: "98%" }}></div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Country *</label>
+                                        <input type="text" value={formData.country} onChange={(e) => setFormData({...formData, country: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder:text-slate-500" placeholder="e.g., USA" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Visa Type *</label>
+                                        <input type="text" value={formData.visa_type} onChange={(e) => setFormData({...formData, visa_type: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder:text-slate-500" placeholder="e.g., tourist" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Required Documents * (comma-separated)</label>
+                                        <input type="text" value={formData.documents} onChange={(e) => setFormData({...formData, documents: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder:text-slate-500" placeholder="passport, photo, application" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Processing Time</label>
+                                        <input type="text" value={formData.processing_time} onChange={(e) => setFormData({...formData, processing_time: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder:text-slate-500" placeholder="e.g., 3-5 weeks" />
+                                    </div>
+                                    <div className="flex gap-4 justify-end pt-4">
+                                        <button onClick={() => setShowModal(false)} className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors">Cancel</button>
+                                        <button onClick={handleSubmit} className="px-6 py-2 rounded-lg bg-primary hover:bg-primary/90 text-background-dark font-bold transition-colors">
+                                            {modalMode === 'add' ? 'Add Requirement' : 'Save Changes'}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs text-slate-400">Response Speed</span>
-                                    <span className="text-xs font-bold text-emerald-500">240ms</span>
-                                </div>
-                                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: "85%" }}></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="mt-auto pt-6">
-                            <div className="bg-primary/10 border border-primary/20 rounded-2xl p-6 text-center">
-                                <span className="material-symbols-outlined text-primary text-4xl mb-2">cloud_upload</span>
-                                <h4 className="font-bold text-primary">Bulk Update</h4>
-                                <p className="text-xs text-slate-400 mt-2 mb-4 leading-relaxed">Need to update multiple visa requirements? Upload a CSV or JSON file here.</p>
-                                <button onClick={() => console.log('Upload File Clicked')} className="w-full bg-primary text-background-dark font-bold py-2 rounded-lg text-sm">Upload File</button>
-                            </div>
+                            )}
                         </div>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };
