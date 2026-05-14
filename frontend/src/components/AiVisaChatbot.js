@@ -7,6 +7,17 @@ const AiVisaChatbot = () => {
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [eligibilityMode, setEligibilityMode] = useState(false);
+    const [eligibilityData, setEligibilityData] = useState({
+        travel_purpose: '',
+        duration_days: '',
+        country: '',
+        nationality: '',
+        has_passport: true,
+        has_prior_visa: false,
+        criminal_record: false,
+        has_ties: true
+    });
     const messagesEndRef = useRef(null);
     const navigate = useNavigate();
 
@@ -19,8 +30,100 @@ const AiVisaChatbot = () => {
     }, [messages, loading]);
 
     const handleSend = async () => {
+        // If in eligibility mode, collect data and submit
+        if (eligibilityMode) {
+            const key = Object.keys(eligibilityData).find(k => !eligibilityData[k] && k !== 'has_passport' && k !== 'has_prior_visa' && k !== 'criminal_record' && k !== 'has_ties');
+            if (key && input.trim()) {
+                const newData = { ...eligibilityData, [key]: input.trim() };
+                setEligibilityData(newData);
+                setInput('');
+                
+                // Check if we have all required data
+                if (newData.country && newData.travel_purpose) {
+                    // Submit eligibility check
+                    setLoading(true);
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const res = await fetch('http://localhost:8000/eligibility', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                travel_purpose: newData.travel_purpose,
+                                duration_days: newData.duration_days ? parseInt(newData.duration_days) : null,
+                                country: newData.country,
+                                nationality: newData.nationality || null,
+                                has_passport: newData.has_passport,
+                                has_prior_visa: newData.has_prior_visa,
+                                criminal_record: newData.criminal_record,
+                                has_ties: newData.has_ties
+                            })
+                        });
+                        
+                        if (res.ok) {
+                            const data = await res.json();
+                            const status = data.eligible 
+                                ? "✅ PRELIMINARY ELIGIBLE" 
+                                : "⚠️ PRELIMINARY NOT ELIGIBLE";
+                            const response = `${status}\n\nVisa Type: ${data.visa_type}\nConfidence: ${Math.round(data.confidence * 100)}%\n\nRequirements Met:\n${data.requirements_met?.join('\n') || 'None listed'}\n\nRequirements Missing:\n${data.requirements_missing?.join('\n') || 'None'}\n\n${data.notes ? `Notes: ${data.notes}` : ''}`;
+                            setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+                        } else {
+                            setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error while checking your eligibility." }]);
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        setMessages(prev => [...prev, { role: 'assistant', content: "Network error. Please try again later." }]);
+                    } finally {
+                        setLoading(false);
+                        setEligibilityMode(false);
+                        setEligibilityData({
+                            travel_purpose: '',
+                            duration_days: '',
+                            country: '',
+                            nationality: '',
+                            has_passport: true,
+                            has_prior_visa: false,
+                            criminal_record: false,
+                            has_ties: true
+                        });
+                    }
+                    return;
+                }
+                
+                // Continue collecting data
+                const nextQuestion = key === 'travel_purpose' ? "What is your destination country?" :
+                    key === 'country' ? "How long do you plan to stay (in days)?" :
+                    key === 'duration_days' ? "What is your nationality?" :
+                    "";
+                setMessages(prev => [...prev, { role: 'assistant', content: nextQuestion }]);
+                return;
+            }
+        }
+        
         if (!input.trim()) return;
         const userMsg = input;
+        
+        // Check for eligibility trigger
+        if (userMsg.toLowerCase().includes('check my eligibility') || userMsg.toLowerCase().includes('eligibility')) {
+            setEligibilityMode(true);
+            setEligibilityData({
+                travel_purpose: '',
+                duration_days: '',
+                country: '',
+                nationality: '',
+                has_passport: true,
+                has_prior_visa: false,
+                criminal_record: false,
+                has_ties: true
+            });
+            setInput('');
+            setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+            setMessages(prev => [...prev, { role: 'assistant', content: "I'll help you check your visa eligibility. What is your travel purpose? (tourism, business, work, study, or transit)" }]);
+            return;
+        }
+        
         setInput('');
         setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
         setLoading(true);
@@ -134,9 +237,24 @@ const AiVisaChatbot = () => {
                     <header className="h-16 border-b border-slate-200 dark:border-primary/10 flex items-center justify-between px-8 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md z-10">
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Consultation:</span>
-                            <span className="text-sm font-bold">UK Standard Visitor Visa</span>
+                            {eligibilityMode ? (
+                                <span className="text-sm font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                    <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
+                                    Eligibility Check
+                                </span>
+                            ) : (
+                                <span className="text-sm font-bold">UK Standard Visitor Visa</span>
+                            )}
                         </div>
                         <div className="flex items-center gap-4">
+                            {eligibilityMode && (
+                                <button onClick={() => {
+                                    setEligibilityMode(false);
+                                    setMessages(prev => [...prev, { role: 'assistant', content: "Eligibility check cancelled. How else can I help you?" }]);
+                                }} className="text-xs text-red-500 hover:text-red-600 font-medium">
+                                    Cancel
+                                </button>
+                            )}
                             <button className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary transition-colors">
                                 <span className="material-symbols-outlined text-lg">share</span>
                                 Share
@@ -187,16 +305,29 @@ const AiVisaChatbot = () => {
                     <footer className="p-8 z-10 relative">
                         {/* Suggested Chips */}
                         <div className="flex flex-wrap gap-2 mb-6 max-w-4xl mx-auto justify-center">
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                            <button onClick={() => setInput('What documents do I need for France?')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
                                 What documents do I need for France?
                             </button>
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                            <button onClick={() => {
+                                setEligibilityMode(true);
+                                setEligibilityData({
+                                    travel_purpose: '',
+                                    duration_days: '',
+                                    country: '',
+                                    nationality: '',
+                                    has_passport: true,
+                                    has_prior_visa: false,
+                                    criminal_record: false,
+                                    has_ties: true
+                                });
+                                setMessages(prev => [...prev, { role: 'assistant', content: "I'll help you check your visa eligibility. What is your travel purpose? (tourism, business, work, study, or transit)" }]);
+                            }} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
                                 Check my eligibility
                             </button>
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                            <button onClick={() => setInput('Cost of UK Visa')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
                                 Cost of UK Visa
                             </button>
-                            <button className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
+                            <button onClick={() => setInput('Interview tips')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
                                 Interview tips
                             </button>
                         </div>

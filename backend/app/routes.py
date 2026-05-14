@@ -104,6 +104,76 @@ async def chat_endpoint(query: dict, user: dict = Depends(get_current_user)):
     answer = await handle_query(text)
     return {"answer": answer}
 
+
+# ==================== Eligibility Assessment Endpoints ====================
+
+class EligibilityContextInput(BaseModel):
+    travel_purpose: str
+    duration_days: int = None
+    country: str
+    nationality: str = None
+    has_passport: bool = True
+    has_prior_visa: bool = False
+    criminal_record: bool = False
+    has_ties: bool = True
+
+
+@router.post("/eligibility")
+async def check_eligibility(
+    context: EligibilityContextInput,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Check visa eligibility based on user travel context.
+    Uses RAG-based knowledge base for country-specific requirements.
+    """
+    from .eligibility import assess_eligibility, save_eligibility_assessment, EligibilityContext
+    
+    # Convert input to EligibilityContext
+    eligibility_context = EligibilityContext(
+        travel_purpose=context.travel_purpose,
+        duration_days=context.duration_days,
+        country=context.country,
+        nationality=context.nationality,
+        has_passport=context.has_passport,
+        has_prior_visa=context.has_prior_visa,
+        criminal_record=context.criminal_record,
+        has_ties=context.has_ties
+    )
+    
+    # Assess eligibility
+    result = await assess_eligibility(eligibility_context)
+    
+    # Save assessment to database
+    user_email = user.get("sub", "")
+    await save_eligibility_assessment(user_email, eligibility_context, result)
+    
+    return {
+        "eligible": result.eligible,
+        "visa_type": result.visa_type,
+        "confidence": result.confidence,
+        "requirements_met": result.requirements_met,
+        "requirements_missing": result.requirements_missing,
+        "processing_time": result.processing_time,
+        "estimated_cost": result.estimated_cost,
+        "notes": result.notes,
+        "status": "Preliminary Eligibility Assessment Complete"
+    }
+
+
+@router.get("/eligibility")
+async def get_eligibility_history(user: dict = Depends(get_current_user)):
+    """Get user's eligibility assessment history"""
+    from .eligibility import get_eligibility_status
+    
+    user_email = user.get("sub", "")
+    history = await get_eligibility_status(user_email)
+    
+    if not history:
+        return {"assessments": [], "message": "No previous eligibility assessments"}
+    
+    return {"assessments": [history]}
+
 # dashboard endpoints
 @router.get("/dashboard/user")
 async def get_user_dashboard(user: dict = Depends(get_current_user)):
