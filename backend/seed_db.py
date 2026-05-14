@@ -64,7 +64,49 @@ async def execute_seed():
         ]
     })
 
-    print("Seeding available done!")
+    print("Seeding Visa Requirements...")
+    await db.visas.delete_many({})
+    await db.visas.insert_many([
+        {
+            "country": "United States",
+            "visa_type": "B1/B2",
+            "documents": ["Passport", "DS-160 Form", "Photo", "Financial Documents"],
+            "processing_time": "3-5 weeks"
+        },
+        {
+            "country": "United Kingdom",
+            "visa_type": "Standard Visitor",
+            "documents": ["Passport", "Application Form", "Photo", "Bank Statement", "Employment Letter"],
+            "processing_time": "3 weeks"
+        },
+        {
+            "country": "Canada",
+            "visa_type": "Tourist",
+            "documents": ["Passport", "Photo", "Travel Itinerary", "Financial Proof"],
+            "processing_time": "2-4 weeks"
+        },
+        {
+            "country": "Germany",
+            "visa_type": "Schengen",
+            "documents": ["Passport", "Application Form", "Travel Insurance", "Financial Documents"],
+            "processing_time": "2-3 weeks"
+        },
+        {
+            "country": "Australia",
+            "visa_type": "Tourist",
+            "documents": ["Passport", "Photo", "Financial Statements", "Health Insurance"],
+            "processing_time": "4-6 weeks"
+        },
+        {
+            "country": "Japan",
+            "visa_type": "Tourist",
+            "documents": ["Passport", "Itinerary", "Hotel Booking"],
+            "processing_time": "1-2 weeks"
+        }
+    ])
+    print("Visa requirements seeded!")
+
+    print("All seeding complete!")
 
 if __name__ == "__main__":
     asyncio.run(execute_seed())

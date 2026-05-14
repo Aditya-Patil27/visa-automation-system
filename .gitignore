@@ -8,3 +8,10 @@ venv/
 node_modules/
 build/
 .env
+
+# GSD Planning (do not commit)
+.planning/
+
+# Internal Docs
+VAS SRS.md
+project_purpose.md
