@@ -1,8 +1,14 @@
+import json
 import os
-from typing import List, Tuple
+from typing import List, Tuple, AsyncGenerator
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.chat_message_histories import SQLChatMessageHistory
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_groq import ChatGroq
 from pydantic_settings import BaseSettings
 
@@ -74,6 +80,8 @@ def semantic_search(question: str, k: int = 5) -> List[dict]:
 
 
 # ── Chat handler (async, cached) ────────────────────────────────────────
+# DEPRECATED: Use RAGChatService.invoke() instead. Kept for backward
+# compatibility with existing /chat endpoint until full migration.
 async def handle_query(question: str) -> str:
     vs = load_vectorstore()
     docs = vs.similarity_search(question, k=3)
@@ -87,6 +95,104 @@ async def handle_query(question: str) -> str:
     prompt = f"Context:\n{context_text}\n\nQuestion: {question}\nAnswer:"
     response = await llm.ainvoke(prompt)
     return response.content
+
+
+# ── RAGChatService (LCEL chain with memory + streaming) ─────────────────
+class RAGChatService:
+    """LCEL-based RAG pipeline with persisted SQLite chat memory and SSE
+    token streaming."""
+
+    def __init__(self):
+        self.settings = _get_settings()
+        self._build_chains()
+
+    # ------------------------------------------------------------------
+    def _get_vectorstore(self):
+        return load_vectorstore()
+
+    # ------------------------------------------------------------------
+    def _get_session_history(self, session_id: str):
+        history = SQLChatMessageHistory(
+            session_id=session_id,
+            connection_string="sqlite+aiosqlite:///chat_history.db",
+            table_name="chat_history",
+        )
+        # Sliding window: keep at most the last 20 messages (≈10 exchanges)
+        if len(history.messages) > 20:
+            history.messages = history.messages[-20:]
+        return history
+
+    # ------------------------------------------------------------------
+    async def _retrieve(self, question: str, k: int = 3) -> str:
+        docs = load_vectorstore().similarity_search(question, k=k)
+        return "\n\n".join(d.page_content for d in docs)
+
+    # ------------------------------------------------------------------
+    def _build_chains(self):
+        llm = ChatGroq(
+            groq_api_key=self.settings.groq_api_key,
+            model="llama-3.1-8b-instant",
+            temperature=0.2,
+            max_tokens=1024,
+        )
+
+        rag_prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a visa consultation assistant. "
+                       "Use the provided context to answer visa-related "
+                       "questions concisely and accurately.\n\n"
+                       "Context:\n{context}"),
+            MessagesPlaceholder(variable_name="history"),
+            ("human", "{question}"),
+        ])
+
+        # LCEL: retrieve → prompt → llm → string
+        rag_chain = (
+            RunnablePassthrough.assign(
+                context=lambda x: self._retrieve(x["question"])
+            )
+            | rag_prompt
+            | llm
+            | StrOutputParser()
+        )
+
+        self.chain_with_memory = RunnableWithMessageHistory(
+            rag_chain,
+            self._get_session_history,
+            input_messages_key="question",
+            history_messages_key="history",
+        )
+
+    # ------------------------------------------------------------------
+    async def invoke(self, question: str, session_id: str) -> str:
+        return await self.chain_with_memory.ainvoke(
+            {"question": question},
+            config={"configurable": {"session_id": session_id}},
+        )
+
+    # ------------------------------------------------------------------
+    async def stream(self, question: str, session_id: str) -> AsyncGenerator[str, None]:
+        async for event in self.chain_with_memory.astream_events(
+            {"question": question},
+            config={"configurable": {"session_id": session_id}},
+            version="v1",
+            include=["on_chat_model_stream"],
+        ):
+            if event["event"] == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if chunk.content:
+                    yield f"data: {json.dumps({'token': chunk.content})}\n\n"
+        yield "data: [DONE]\n\n"
+
+
+# ── Module-level RAGChatService singleton ───────────────────────────
+_rag_service = None
+
+
+def get_rag_service():
+    global _rag_service
+    if _rag_service is None:
+        _rag_service = RAGChatService()
+    return _rag_service
 
 
 # ── Indexing ─────────────────────────────────────────────────────────────
