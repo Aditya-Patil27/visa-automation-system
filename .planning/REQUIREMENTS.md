@@ -19,14 +19,14 @@
 - [x] **BOT-01**: Chatbot provides clear and concise responses to visa queries
 - [x] **BOT-02**: Chatbot is user-friendly and easy to interact with
 - [ ] **BOT-03**: Chatbot analyzes documents and provides visa eligibility feedback based on country requirements
-- [ ] **BOT-04**: Ineligible users receive alternative visa suggestions
+- [x] **BOT-04**: Ineligible users receive alternative visa suggestions
 - [ ] **BOT-05**: Users can explore other visa options or improve eligibility
 
 ### Visa Pre-Assessment
 
 - [ ] **VISA-01**: User can complete pre-assessment form with travel details and personal info
 - [ ] **VISA-02**: System assesses visa eligibility based on purpose of travel
-- [ ] **VISA-03**: Eligibility check verifies requirements for selected destination country
+- [x] **VISA-03**: Eligibility check verifies requirements for selected destination country
 
 ### Appointment Scheduling
 
@@ -98,11 +98,11 @@
 | BOT-01 | Phase 2 | Complete |
 | BOT-02 | Phase 2 | Complete |
 | BOT-03 | Phase 2 | Pending |
-| BOT-04 | Phase 2 | Pending |
+| BOT-04 | Phase 2 | Complete |
 | BOT-05 | Phase 2 | Pending |
 | VISA-01 | Phase 2 | Pending |
 | VISA-02 | Phase 2 | Pending |
-| VISA-03 | Phase 2 | Pending |
+| VISA-03 | Phase 2 | Complete |
 | VISA-04 | Phase 3 | Pending |
 | VISA-05 | Phase 3 | Pending |
 | VISA-06 | Phase 3 | Pending |
