@@ -83,9 +83,9 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 
 | Plan | Objective | Wave | Status |
 |------|-----------|------|--------|
-| 08-eligibility | Visa eligibility assessment | 1 | ○ Pending |
-| 09-notifications | Email/SMS alerts | 1 | ○ Pending |
-| 10-performance | Scale to 100+ concurrent users | 2 | ○ Pending |
+| 03-08 | Visa eligibility assessment | 1 | ✓ Complete |
+| 03-09 | Email/SMS alerts | 1 | ✓ Complete |
+| 03-10 | Scale to 100+ concurrent users | 2 | ○ Pending |
 
 ---
 
@@ -95,7 +95,7 @@ Chatbot-driven system for employees to get visa/embassy information. Admin dashb
 |-------|--------|-------|----------|
 | 01 | ✓ Complete | 4/4 | 100% |
 | 02 | ✓ Complete | 3/3 | 100% |
-| 03 | ○ Pending | 3 | 0% |
+| 03 | ○ In Progress | 3 | 67% |
 
 ---
 

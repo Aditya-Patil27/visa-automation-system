@@ -17,7 +17,7 @@
 |-------|--------|-------|--------------|
 | 01 | ✓ Complete | 4/4 | 2026-05-14 |
 | 02 | ✓ Complete | 3/3 | 2026-05-14 |
-| 03 | ○ Pending | 3 | - |
+| 03 | ○ In Progress | 2/3 | 2026-05-14 |
 
 ## Context Summary
 
@@ -36,6 +36,12 @@
 
 ## Open Decisions
 
-- [ ] Scraping targets expansion
-- [ ] Email notification provider
-- [ ] Eligibility checker implementation
+- [x] Email notification provider (Phase 3 context: SMTP via SendGrid/SES, SMS via Twilio)
+- [x] Eligibility checker implementation (Phase 3 context: RAG-based conversational flow)
+
+## Phase 03 Context
+
+- Eligibility: Conversational via chatbot, RAG-based, country-specific criteria, "Preliminary Eligibility" output
+- Notifications: Email (SMTP/SendGrid/SES), SMS (Twilio), triggers: status changes, 24/48hr reminders, scraping alerts
+- Documents: PDF/PNG/JPG/DOCX, 10MB max, MongoDB metadata + /uploads or S3
+- Performance: Redis caching, MongoDB indexes, Nginx + FastAPI workers for 100+ users
