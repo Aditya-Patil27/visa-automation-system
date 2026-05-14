@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 2 planning complete
-last_updated: "2026-05-14T17:41:54.877Z"
+last_updated: "2026-05-14T17:42:17.175Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 4
@@ -36,20 +36,20 @@ Progress: [█████░░░░░] 50%
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: N/A
-- Total execution time: 0 hours
+- Total plans completed: 2
+- Average duration: ~15 min
+- Total execution time: ~30 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 2 | 2 | ~30 min | ~15 min |
 
 **Recent Trend:**
 
-- Last 5 plans: N/A
-- Trend: N/A
+- Last 5 plans: 02-01 (15 min), 02-02 (~15 min)
+- Trend: Stable
 
 *Updated after each plan completion*
 
@@ -68,6 +68,7 @@ Recent decisions affecting current work:
 - Phase 2: Hybrid eligibility: deterministic rules first, LLM structured output for nuanced cases (D-06)
 - Phase 2: Rules-based alternative visa suggestions via alternative_visa_ids (D-17)
 - Phase 2: 4 plans in 2 waves, standard granularity
+- Phase 2: RAGChatService singleton with RunnableWithMessageHistory + SQLChatMessageHistory (D-19)
 
 ### Pending Todos
 
@@ -85,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-14T17:41:54.863Z
+Last session: 2026-05-14T17:42:17.155Z
 Stopped at: Phase 2 planning complete
 Resume file: None

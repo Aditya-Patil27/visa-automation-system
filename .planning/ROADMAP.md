@@ -56,8 +56,8 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — RAG Chat with Memory & Streaming (BOT-01, BOT-02)
-- [ ] 02-02-PLAN.md — Eligibility Rules Engine + Seed Data (BOT-03, VISA-02)
+- [x] 02-01-PLAN.md — RAG Chat with Memory & Streaming (BOT-01, BOT-02)
+- [x] 02-02-PLAN.md — Eligibility Rules Engine + Seed Data (BOT-03, VISA-02)
 - [ ] 02-03-PLAN.md — Pre-Assessment Form + Backend CRUD API (VISA-01, BOT-05)
 - [ ] 02-04-PLAN.md — Eligibility Results + Alternative Visas + Test Infrastructure (BOT-04, VISA-03)
 
@@ -109,6 +109,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Auth & Role Management | 0/4 | Not started | - |
-| 2. Chatbot & Visa Assessment | 0/4 | Not started | - |
+| 2. Chatbot & Visa Assessment | 2/4 | In Progress|  |
 | 3. Scheduling & Documents | 0/4 | Not started | - |
 | 4. Notifications & Admin | 0/4 | Not started | - |
