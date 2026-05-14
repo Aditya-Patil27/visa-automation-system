@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from typing import List
+from fastapi.responses import Response
+from typing import List, Optional
+from datetime import datetime
 
 from .database import get_database
 from .models import UserCreate, Token, VisaRequirement, VisaDB
@@ -9,6 +11,16 @@ from .security import (
     get_password_hash,
     create_access_token,
     decode_access_token,
+)
+from .cache import (
+    get_cache,
+    cache_rag_result,
+    get_cached_rag_result,
+    cache_visa_requirements,
+    get_cached_visa_requirements,
+    cache_user_session,
+    get_cached_user_session,
+    get_cache_stats,
 )
 
 router = APIRouter()
@@ -56,15 +68,33 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": token}
 
 
-# visa endpoints
+# visa endpoints with caching
 @router.get("/visa", response_model=List[VisaDB])
-async def list_visas(_: dict = Depends(get_current_user)):
+async def list_visas(_: dict = Depends(get_current_user), response: Response = None):
     db = get_database()
+    cache = await get_cache()
+
+    # Try cache first
+    cached = await cache.get_json("visa:all:list")
+    if cached:
+        if response:
+            response.headers["X-Cache-Hit"] = "true"
+            response.headers["X-Cache-TTL"] = "600"
+        return cached
+
     items = []
     cursor = db.visas.find()
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
         items.append(doc)
+
+    # Cache the result
+    await cache.set_json("visa:all:list", items, ttl=600)
+
+    if response:
+        response.headers["X-Cache-Hit"] = "false"
+        response.headers["X-Cache-TTL"] = "600"
+
     return items
 
 
@@ -74,6 +104,11 @@ async def create_visa(visa: VisaRequirement, _: dict = Depends(get_current_admin
     res = await db.visas.insert_one(visa.dict())
     visa_doc = visa.dict()
     visa_doc["_id"] = str(res.inserted_id)
+
+    # Invalidate visa list cache
+    cache = await get_cache()
+    await cache.delete("visa:all:list")
+
     return visa_doc
 
 
@@ -93,16 +128,34 @@ async def delete_visa(id: str, _: dict = Depends(get_current_admin)):
     return {"detail": "deleted"}
 
 
-# chat endpoint simplified
+# chat endpoint with caching
 @router.post("/chat")
-async def chat_endpoint(query: dict, user: dict = Depends(get_current_user)):
+async def chat_endpoint(query: dict, user: dict = Depends(get_current_user), response: Response = None):
     from .rag import handle_query
 
     text = query.get("question")
     if not text:
         raise HTTPException(status_code=400, detail="No question provided")
+
+    # Check cache first
+    cached_result = await get_cached_rag_result(text)
+    if cached_result:
+        if response:
+            response.headers["X-Cache-Hit"] = "true"
+            response.headers["X-Cache-TTL"] = "3600"
+        return {"answer": cached_result, "cached": True}
+
+    # Process query
     answer = await handle_query(text)
-    return {"answer": answer}
+
+    # Cache the result
+    await cache_rag_result(text, answer)
+
+    if response:
+        response.headers["X-Cache-Hit"] = "false"
+        response.headers["X-Cache-TTL"] = "3600"
+
+    return {"answer": answer, "cached": False}
 
 
 # ==================== Eligibility Assessment Endpoints ====================
@@ -174,11 +227,22 @@ async def get_eligibility_history(user: dict = Depends(get_current_user)):
     
     return {"assessments": [history]}
 
-# dashboard endpoints
+# dashboard endpoints with caching
 @router.get("/dashboard/user")
-async def get_user_dashboard(user: dict = Depends(get_current_user)):
+async def get_user_dashboard(user: dict = Depends(get_current_user), response: Response = None):
+    user_email = user.get("sub", "")
+
+    # Try cache first
+    cached = await get_cached_user_session(user_email)
+    if cached:
+        if response:
+            response.headers["X-Cache-Hit"] = "true"
+            response.headers["X-Cache-TTL"] = "1800"
+        cached["cached"] = True
+        return cached
+
     # Returns some static mock structural data combined with dynamic user fields
-    return {
+    dashboard_data = {
         "user_name": str(user.get("sub", "User")).split("@")[0].capitalize(),
         "email": user.get("sub"),
         "active_case": {
@@ -202,6 +266,16 @@ async def get_user_dashboard(user: dict = Depends(get_current_user)):
             {"name": "Portrait_Photo.jpg", "size": "4.1 MB", "icon": "image"}
         ]
     }
+
+    # Cache the dashboard data
+    await cache_user_session(user_email, dashboard_data)
+
+    if response:
+        response.headers["X-Cache-Hit"] = "false"
+        response.headers["X-Cache-TTL"] = "1800"
+
+    dashboard_data["cached"] = False
+    return dashboard_data
 
 @router.get("/dashboard/admin")
 async def get_admin_dashboard(admin: dict = Depends(get_current_admin)):
@@ -685,4 +759,63 @@ async def trigger_appointment_reminder(
         user_email, appointment_date, appointment_time, location, appointment_type
     )
     return result
+
+
+# ==================== Cache Management Endpoints ====================
+
+@router.get("/cache/stats")
+async def get_cache_statistics(admin: dict = Depends(get_current_admin)):
+    """Get cache statistics (admin only)."""
+    stats = await get_cache_stats()
+    return stats
+
+
+@router.post("/cache/clear")
+async def clear_cache(
+    cache_type: Optional[str] = None,
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Clear cache entries (admin only).
+    
+    Args:
+        cache_type: Optional filter - "visa", "rag", "session", or None for all
+    """
+    from .cache import invalidate_visa_cache, invalidate_rag_cache, get_cache
+
+    if cache_type == "visa":
+        deleted = await invalidate_visa_cache()
+    elif cache_type == "rag":
+        deleted = await invalidate_rag_cache()
+    elif cache_type == "session":
+        cache = await get_cache()
+        deleted = await cache.clear_pattern("session:*")
+    else:
+        # Clear all cache
+        cache = await get_cache()
+        deleted = await cache.clear_all()
+
+    return {
+        "message": f"Cache cleared successfully",
+        "deleted_count": deleted,
+        "cache_type": cache_type if cache_type else "all"
+    }
+
+
+@router.delete("/cache/{cache_key}")
+async def delete_cache_entry(
+    cache_key: str,
+    admin: dict = Depends(get_current_admin)
+):
+    """Delete a specific cache entry (admin only)."""
+    from .cache import get_cache
+
+    cache = await get_cache()
+    deleted = await cache.delete(cache_key)
+
+    return {
+        "message": "Cache entry deleted" if deleted else "Cache key not found",
+        "cache_key": cache_key,
+        "deleted": deleted
+    }
 
