@@ -452,6 +452,78 @@ const ScraperMonitoringDashboard = () => {
                             </div>
                         </div>
                         
+                        {/* Alert Configuration */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Email Alert Configuration */}
+                            <div className="bg-primary/5 backdrop-blur-sm border border-white/5 rounded-xl p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-primary">email</span>
+                                        Email Alert Configuration
+                                    </h3>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-3 bg-slate-100/50 dark:bg-primary/5 rounded-lg">
+                                        <div>
+                                            <p className="text-sm font-medium">Email on Failure</p>
+                                            <p className="text-[10px] text-slate-500">Send alert when 3+ consecutive failures</p>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" defaultChecked className="sr-only peer" />
+                                            <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-primary/20 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                                        </label>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-slate-500 mb-2 block">Email Recipient</label>
+                                        <input 
+                                            type="email" 
+                                            placeholder="admin@example.com"
+                                            className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                        />
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button className="flex-1 px-3 py-2 text-xs font-medium border border-primary/20 rounded-lg hover:bg-primary/10 transition-colors min-h-[44px]">
+                                            Test Email
+                                        </button>
+                                        <button className="flex-1 px-3 py-2 text-xs font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors min-h-[44px]">
+                                            Save Settings
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Error Alert Summary */}
+                            <div className="bg-primary/5 backdrop-blur-sm border border-white/5 rounded-xl p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-primary">notification_important</span>
+                                        Error Alert Summary
+                                    </h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {targetStatus.filter(t => t.consecutive_failures > 0).map(target => (
+                                        <div key={target.target} className="flex items-center justify-between p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
+                                            <div>
+                                                <p className="text-sm font-medium text-red-400">{target.target}</p>
+                                                <p className="text-[10px] text-slate-500">{target.consecutive_failures} consecutive failure(s)</p>
+                                            </div>
+                                            <span className={`text-[10px] px-2 py-1 rounded font-bold ${
+                                                target.consecutive_failures >= 3 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'
+                                            }`}>
+                                                {target.consecutive_failures >= 3 ? 'CRITICAL' : 'WARNING'}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    {targetStatus.filter(t => t.consecutive_failures > 0).length === 0 && (
+                                        <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                            <span className="material-symbols-outlined text-emerald-500">check_circle</span>
+                                            <span className="text-sm text-emerald-400">No active errors - all targets healthy</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        
                         {/* Log Viewer */}
                         <div className="bg-primary/5 backdrop-blur-sm border border-white/5 rounded-xl overflow-hidden">
                             <div className="p-6 border-b border-primary/10 flex flex-wrap items-center justify-between gap-4">
