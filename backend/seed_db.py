@@ -1,112 +1,55 @@
+"""Seed MongoDB with visa requirement data."""
 import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-from dotenv import load_dotenv
+import json
+from app.database import get_database, init_db
+from app.models import COLL_VISAS
 
-load_dotenv()
 
-async def execute_seed():
-    client = AsyncIOMotorClient(os.getenv("MONGODB_URL"))
-    db = client.visaflow
+SEED_VISAS = [
+    {"country": "United States", "visa_type": "B1/B2 Tourist/Business Visa",
+     "documents": ["Valid passport", "DS-160 confirmation", "Photo", "Bank statements"],
+     "processing_time": "10-15 business days", "min_age": 18, "min_balance": 5000.0,
+     "allowed_purposes": ["tourism", "business", "medical"], "description": "For tourism, business visits, or medical treatment.",
+     "validity": "10 years", "max_stay_days": 180, "fee": 185.0},
+    {"country": "United Kingdom", "visa_type": "Standard Visitor Visa",
+     "documents": ["Valid passport", "Bank statements", "Travel itinerary"],
+     "processing_time": "15 working days", "min_age": 18, "min_balance": 3000.0,
+     "allowed_purposes": ["tourism", "business"], "description": "For tourism, family visits, or business meetings.",
+     "fee": 115.0},
+    {"country": "India", "visa_type": "e-Tourist Visa",
+     "documents": ["Valid passport", "Photo", "Return ticket", "Hotel booking"],
+     "processing_time": "3-5 working days", "min_age": 18, "min_balance": 1000.0,
+     "allowed_purposes": ["tourism", "business", "medical"],
+     "description": "Electronic Tourist Visa for India.", "validity": "1 year", "max_stay_days": 90, "fee": 25.0},
+    {"country": "Australia", "visa_type": "Visitor Visa (Subclass 600)",
+     "documents": ["Valid passport", "Bank statements", "Travel itinerary", "Employment letter"],
+     "processing_time": "20-30 days", "min_age": 18, "min_balance": 5000.0,
+     "allowed_purposes": ["tourism", "business"], "description": "For tourism or business visits.",
+     "validity": "Up to 12 months", "max_stay_days": 90, "fee": 145.0},
+    {"country": "Canada", "visa_type": "Visitor Visa",
+     "documents": ["Valid passport", "Photos", "Travel history", "Bank statements", "Travel itinerary"],
+     "processing_time": "14-30 days", "min_age": 18, "min_balance": 5000.0,
+     "allowed_purposes": ["tourism", "business"], "description": "For tourism or business visits to Canada.",
+     "validity": "Up to 10 years", "max_stay_days": 180, "fee": 100.0},
+    {"country": "Schengen Area", "visa_type": "Schengen Tourist Visa",
+     "documents": ["Valid passport", "Travel insurance", "Flight reservation", "Hotel booking", "Bank statements", "Employment letter"],
+     "processing_time": "15 calendar days", "min_age": 18, "min_balance": 5000.0,
+     "allowed_purposes": ["tourism", "business", "family visit"],
+     "description": "Short-stay visa for Schengen Area.", "validity": "Up to 5 years", "max_stay_days": 90, "fee": 80.0},
+]
 
-    print("Seeding Progress Tracker...")
-    await db.progress.delete_many({})
-    await db.progress.insert_one({
-        "user_email": "testuser_1234@test.com",
-        "progress_steps": [
-            {"title": "Application Submitted", "date": "Oct 12, 2023", "status": "completed", "desc": "Successfully received and logged in the VFS portal."},
-            {"title": "Document Verification", "date": "Oct 15, 2023", "status": "completed", "desc": "Financial statements, CAS, and transcripts validated by AI."},
-            {"title": "Appointment Scheduled", "date": "Oct 28, 2023", "status": "current", "desc": "Embassy of the UK, London VFS Global Center.", "time": "10:30 AM"},
-            {"title": "Visa Interview", "date": "Late October", "status": "upcoming", "desc": "Prepare for potential interview questions."},
-            {"title": "Final Decision", "date": "Nov 15, 2023", "status": "upcoming", "desc": "Embassy communicates final outcome."}
-        ],
-        "stats": {
-            "total_timeline": "34 Days",
-            "approval_probability": 98.2,
-            "wait_time": "12 Days"
-        }
-    })
 
-    print("Seeding Tasks & Workflow...")
-    await db.workflow.delete_many({})
-    await db.workflow.insert_many([
-        { "id": "APP-2091", "type": "Visa Decision", "priority": "High", "time": "2 hours ago", "user": "J. Smith (UK Tier 4)" },
-        { "id": "APP-2088", "type": "Document Verification", "priority": "Medium", "time": "5 hours ago", "user": "M. Garcia (US B1/B2)" },
-        { "id": "SYS-092", "type": "Rules Update Approval", "priority": "Low", "time": "1 day ago", "user": "System Auto-Draft" }
-    ])
+async def seed():
+    await init_db()
+    db = get_database()
+    existing = await db[COLL_VISAS].count_documents({})
+    if existing > 0:
+        print(f"MongoDB already has {existing} visa records — skipping seed")
+        return
+    for visa in SEED_VISAS:
+        await db[COLL_VISAS].insert_one(visa)
+    print(f"Seeded {len(SEED_VISAS)} visa records into MongoDB")
 
-    print("Seeding Scraper Logs...")
-    await db.scraper_logs.delete_many({})
-    await db.scraper_logs.insert_many([
-        {"timestamp": "2 mins ago", "action": "Scrape Embassy Data", "entity": "Berlin, Germany", "status": "Success"},
-        {"timestamp": "3 hours ago", "action": "Scrape Error", "entity": "Ottawa, Canada", "status": "Retrying"},
-        {"timestamp": "5 hours ago", "action": "Data Sync", "entity": "London, UK", "status": "Success"},
-    ])
-
-    print("Seeding Appointments...")
-    await db.appointments.delete_many({})
-    await db.appointments.insert_one({
-        "user_email": "testuser_1234@test.com",
-        "selected": {"date": "Oct 07, 2023", "time": "10:30 AM - 11:15 AM", "location": "US Consulate, London", "agent": "Agent Sarah Jenkins (Assigned)"},
-        "available_slots": [{"day": 5, "count": 3}, {"day": 15, "ai_optimized": True}],
-        "month": "October 2023"
-    })
-
-    print("Seeding Documents...")
-    await db.documents.delete_many({})
-    await db.documents.insert_one({
-        "user_email": "testuser_1234@test.com",
-        "active_processing": {"name": "Passport_Scan_Main.pdf", "type": "pdf", "size": "2.4 MB", "progress": 84},
-        "checklist": [
-            {"name": "Identity Proof", "desc": "Valid Passport", "status": "Verified"},
-            {"name": "Bank Statement", "desc": "Last 6 Months", "status": "Pending"},
-            {"name": "Digital Photo", "desc": "35x45mm, White BG", "status": "Action"}
-        ]
-    })
-
-    print("Seeding Visa Requirements...")
-    await db.visas.delete_many({})
-    await db.visas.insert_many([
-        {
-            "country": "United States",
-            "visa_type": "B1/B2",
-            "documents": ["Passport", "DS-160 Form", "Photo", "Financial Documents"],
-            "processing_time": "3-5 weeks"
-        },
-        {
-            "country": "United Kingdom",
-            "visa_type": "Standard Visitor",
-            "documents": ["Passport", "Application Form", "Photo", "Bank Statement", "Employment Letter"],
-            "processing_time": "3 weeks"
-        },
-        {
-            "country": "Canada",
-            "visa_type": "Tourist",
-            "documents": ["Passport", "Photo", "Travel Itinerary", "Financial Proof"],
-            "processing_time": "2-4 weeks"
-        },
-        {
-            "country": "Germany",
-            "visa_type": "Schengen",
-            "documents": ["Passport", "Application Form", "Travel Insurance", "Financial Documents"],
-            "processing_time": "2-3 weeks"
-        },
-        {
-            "country": "Australia",
-            "visa_type": "Tourist",
-            "documents": ["Passport", "Photo", "Financial Statements", "Health Insurance"],
-            "processing_time": "4-6 weeks"
-        },
-        {
-            "country": "Japan",
-            "visa_type": "Tourist",
-            "documents": ["Passport", "Itinerary", "Hotel Booking"],
-            "processing_time": "1-2 weeks"
-        }
-    ])
-    print("Visa requirements seeded!")
-
-    print("All seeding complete!")
 
 if __name__ == "__main__":
-    asyncio.run(execute_seed())
+    asyncio.run(seed())

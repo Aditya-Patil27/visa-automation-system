@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import Button from './ui/Button';
+import SidebarNav from './ui/SidebarNav';
+import NotificationBell from './NotificationBell';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
+import { NAV_ITEMS_USER } from '../config/navigation';
 
 const UserDashboard = () => {
     const [dashboardData, setDashboardData] = useState(null);
@@ -9,34 +16,22 @@ const UserDashboard = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const token = localStorage.getItem('access_token');
-                if (!token) {
-                    navigate('/login');
-                    return;
-                }
-                const res = await fetch('http://localhost:8000/dashboard/user', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setDashboardData(data);
-                } else {
-                    if (res.status === 401) navigate('/login');
-                }
+                const data = await api.get('/dashboard/user');
+                setDashboardData(data);
             } catch (err) {
+                if (err?.status === 401) return;
                 console.error("Failed to fetch dashboard data:", err);
             } finally {
                 setLoading(false);
             }
         };
         fetchData();
-    }, [navigate]);
+    }, []);
 
     if (loading) {
         return <div className="h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading dashboard...</div>;
     }
 
-    // fallback when no data is fetched
     const data = dashboardData || {
         user_name: "User",
         email: "user@example.com",
@@ -44,6 +39,35 @@ const UserDashboard = () => {
         next_appointment: { date: "TBD", title: "No Appointments", time: "--", location: "--" },
         recent_activities: [],
         documents: []
+    };
+
+    const handleDownloadReceipt = () => {
+        const receipt = `
+═══════════════════════════════════════
+        VISAFLOW AI – APPLICATION RECEIPT
+═══════════════════════════════════════
+
+  Applicant: ${data.user_name}
+  Email: ${data.email}
+  Status: ${data.active_case.status}
+  
+  Next Appointment: ${data.next_appointment.title}
+  Date: ${data.next_appointment.date}
+  Time: ${data.next_appointment.time}
+  Location: ${data.next_appointment.location}
+
+  Generated: ${new Date().toLocaleString()}
+  
+═══════════════════════════════════════
+  This is a system-generated receipt.
+═══════════════════════════════════════`;
+        const blob = new Blob([receipt], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `VisaFlow_Receipt_${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     return (
@@ -57,37 +81,12 @@ const UserDashboard = () => {
                         </div>
                         <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">VisaApp</h1>
                     </div>
-                    <nav className="flex-1 px-4 space-y-2 mt-4">
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 text-primary font-medium" to="/user-dashboard">
-                            <span className="material-symbols-outlined">dashboard</span>
-                            Dashboard
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors text-slate-600 dark:text-slate-400" to="/visa-eligibility-checker">
-                            <span className="material-symbols-outlined">verified_user</span>
-                            Eligibility
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors text-slate-600 dark:text-slate-400" to="/ai-visa-chatbot">
-                            <span className="material-symbols-outlined">forum</span>
-                            Chatbot
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors text-slate-600 dark:text-slate-400" to="/document-vault-upload-system">
-                            <span className="material-symbols-outlined">description</span>
-                            Documents
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors text-slate-600 dark:text-slate-400" to="/visa-appointment-scheduler">
-                            <span className="material-symbols-outlined">calendar_month</span>
-                            Scheduler
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors text-slate-600 dark:text-slate-400" to="/visa-progress-tracker">
-                            <span className="material-symbols-outlined">analytics</span>
-                            Tracker
-                        </Link>
-                    </nav>
+                    <SidebarNav items={NAV_ITEMS_USER} activeRoute="/user-dashboard" />
                     <div className="p-4 mt-auto">
                         <div className="rounded-xl bg-primary/5 p-4 border border-primary/10">
-                            <p className="text-xs font-semibold text-primary uppercase tracking-wider">Support</p>
+                            <p className="text-xs font-semibold text-primary uppercase tracking-wider">{L.SUPPORT}</p>
                             <p className="text-sm mt-1 text-slate-500 dark:text-slate-400">Need help with your application?</p>
-                            <button onClick={() => console.log('Contact Us Clicked')} className="mt-3 w-full py-2 bg-primary text-background-dark rounded-lg text-sm font-bold">Contact Us</button>
+                            <Button variant="primary" size="md" to={ROUTES.CHATBOT} className="w-full mt-3">{L.CONTACT_US}</Button>
                         </div>
                     </div>
                 </aside>
@@ -102,13 +101,8 @@ const UserDashboard = () => {
                             </div>
                         </div>
                         <div className="flex items-center gap-6">
-                            <button aria-label="Notifications" onClick={() => console.log('Notifications Clicked')} className="relative p-2 text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
-                                <span className="material-symbols-outlined">notifications</span>
-                                <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-background-dark"></span>
-                            </button>
-                            <button aria-label="Settings" onClick={() => console.log('Settings Clicked')} className="p-2 text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
-                                <span className="material-symbols-outlined">settings</span>
-                            </button>
+                            <NotificationBell />
+                            <Button variant="icon" icon="settings" />
                             <div className="flex items-center gap-3 pl-6 border-l border-primary/10">
                                 <div className="text-right hidden sm:block">
                                     <p className="text-sm font-semibold">{data.user_name}</p>
@@ -122,7 +116,7 @@ const UserDashboard = () => {
                     </header>
                     {/* Dashboard Body */}
                     <div className="p-8 space-y-8 max-w-7xl mx-auto w-full relative z-10">
-                        {/* Status Hero Card (Glassmorphism) */}
+                        {/* Status Hero Card */}
                         <div className="relative overflow-hidden rounded-2xl bg-primary/5 backdrop-blur-sm border border-primary/20 p-10 shadow-[0_0_15px_rgba(13,204,242,0.1)] group">
                             <div className="absolute -right-20 -top-20 w-64 h-64 bg-primary/10 blur-[100px] rounded-full group-hover:bg-primary/20 transition-all"></div>
                             <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -135,12 +129,8 @@ const UserDashboard = () => {
                                     <p className="text-slate-500 dark:text-slate-400 text-lg max-w-2xl">{data.active_case.message}</p>
                                 </div>
                                 <div className="flex flex-col gap-3 min-w-[200px]">
-                                    <Link to="/visa-progress-tracker"><button className="w-full bg-primary hover:bg-primary/90 text-background-dark px-6 py-3 rounded-xl font-bold transition-all transform hover:scale-[1.02]">
-                                        View Details
-                                    </button></Link>
-                                    <button onClick={() => console.log('Download Receipt Clicked')} className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 px-6 py-3 rounded-xl font-bold transition-all">
-                                        Download Receipt
-                                    </button>
+                                    <Button variant="primary" size="md" to={ROUTES.PROGRESS_TRACKER} className="w-full">{L.VIEW}</Button>
+                                    <Button variant="secondary" size="md" onClick={handleDownloadReceipt} className="w-full">{L.DOWNLOAD_RECEIPT}</Button>
                                 </div>
                             </div>
                         </div>
@@ -153,7 +143,7 @@ const UserDashboard = () => {
                                         <span className="material-symbols-outlined text-primary">calendar_today</span>
                                         Next Appointment
                                     </h3>
-                                    <Link to="/visa-appointment-scheduler"><button className="text-xs text-primary font-medium hover:underline">Reschedule</button></Link>
+                                    <Button variant="ghost" size="sm" to={ROUTES.APPOINTMENT_SCHEDULER}>{L.RESCHEDULE}</Button>
                                 </div>
                                 <div className="flex items-center gap-6">
                                     <div className="bg-primary/10 rounded-2xl p-4 flex flex-col items-center justify-center min-w-[80px] border border-primary/20">
@@ -193,7 +183,7 @@ const UserDashboard = () => {
                                         </div>
                                     </div>
                                     <div className="ml-6 flex-1">
-                                        <p className="text-sm font-bold text-primary">UK Standard Visitor</p>
+                                        <p className="text-sm font-bold text-primary">Standard Tourist Visa</p>
                                         <p className="text-xs text-slate-500 mt-1">Based on documents provided, you have a high probability of approval.</p>
                                         <div className="mt-3 h-1 w-full bg-slate-200 dark:bg-primary/10 rounded-full overflow-hidden">
                                             <div className="bg-primary h-full w-[85%]"></div>
@@ -221,11 +211,11 @@ const UserDashboard = () => {
                                 </div>
                             </div>
                         </div>
-                        {/* Documents Section (Quick Access) */}
+                        {/* Documents Section */}
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-xl font-bold">Quick Access Documents</h3>
-                                <Link to="/document-vault-upload-system"><button className="text-sm font-semibold text-primary">View All Files</button></Link>
+                                <Button variant="ghost" size="sm" to={ROUTES.DOCUMENT_VAULT}>{L.VIEW_ALL}</Button>
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 {data.documents.map((doc, idx) => (

@@ -1,285 +1,279 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
+
+const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const VisaAppointmentScheduler = () => {
-    const [appointmentData, setAppointmentData] = useState(null);
+    const today = new Date();
+    const [currentMonth, setCurrentMonth] = useState(today.getMonth() + 1);
+    const [currentYear, setCurrentYear] = useState(today.getFullYear());
+    const [slotsData, setSlotsData] = useState(null);
+    const [myAppointments, setMyAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
-    const navigate = useNavigate();
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [view, setView] = useState('calendar');
+    const [selectedDaySlots, setSelectedDaySlots] = useState(null);
+    const [bookingSlot, setBookingSlot] = useState(null);
+    const [confirming, setConfirming] = useState(false);
+    const [slotPopupDay, setSlotPopupDay] = useState(null);
+
+    const fetchSlots = async () => {
+        try {
+            const data = await api.get(`/appointments/slots?month=${currentMonth}&year=${currentYear}`);
+            setSlotsData(data);
+        } catch (err) { console.error('Failed to fetch slots:', err); }
+    };
+
+    const fetchMyAppointments = async () => {
+        try {
+            const data = await api.get('/appointments/my');
+            setMyAppointments(data);
+        } catch (err) { console.error('Failed to fetch appointments:', err); }
+    };
 
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const token = localStorage.getItem('access_token');
-                if (!token) {
-                    navigate('/login');
-                    return;
-                }
-                const res = await fetch('http://localhost:8000/appointments', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setAppointmentData(data);
-                } else {
-                    if (res.status === 401 || res.status === 403) navigate('/login');
-                }
-            } catch (err) {
-                console.error("Failed to fetch appointment data:", err);
-            } finally {
-                setLoading(false);
+        setLoading(true);
+        fetchSlots();
+        fetchMyAppointments();
+        setSelectedDaySlots(null);
+        setBookingSlot(null);
+        setSlotPopupDay(null);
+    }, [currentMonth, currentYear]);
+
+    useEffect(() => {
+        if (slotsData) setLoading(false);
+    }, [slotsData]);
+
+    const prevMonth = () => {
+        if (currentMonth === 1) { setCurrentMonth(12); setCurrentYear(y => y - 1); }
+        else setCurrentMonth(m => m - 1);
+    };
+
+    const nextMonth = () => {
+        if (currentMonth === 12) { setCurrentMonth(1); setCurrentYear(y => y + 1); }
+        else setCurrentMonth(m => m + 1);
+    };
+
+    const handleDayClick = (day) => {
+        if (!slotsData || !slotsData.days) return;
+        const dayStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayData = slotsData.days.find(d => d.date === dayStr);
+        if (dayData && dayData.slots.some(s => s.available)) {
+            setSlotPopupDay(slotPopupDay === day ? null : day);
+            setSelectedDaySlots(dayData);
+            setBookingSlot(null);
+            setError('');
+        }
+    };
+
+    const handleSlotClick = (date, time_slot) => {
+        setBookingSlot({ date, time_slot });
+        setError('');
+        setSuccess('');
+    };
+
+    const confirmBooking = async () => {
+        if (!bookingSlot) return;
+        setConfirming(true);
+        setError('');
+        try {
+            await api.post('/appointments/book', bookingSlot);
+            setSuccess(`Appointment booked for ${bookingSlot.date} at ${bookingSlot.time_slot}`);
+            fetchSlots();
+            fetchMyAppointments();
+            setBookingSlot(null);
+            setSlotPopupDay(null);
+            setSelectedDaySlots(null);
+        } catch (err) {
+            if (err.status === 409) {
+                setError('This slot was just taken. Please choose another.');
+                fetchSlots();
+            } else {
+                setError('Failed to book. Please try again.');
             }
-        };
-        fetchData();
-    }, [navigate]);
+        } finally { setConfirming(false); }
+    };
 
-    if (loading) {
-        return <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading scheduler...</div>;
-    }
+    const cancelBooking = async (id) => {
+        try {
+            await api.del(`/appointments/${id}`);
+            setSuccess('Appointment cancelled');
+            fetchMyAppointments();
+            fetchSlots();
+        } catch (err) {
+            setError('Failed to cancel. Please try again.');
+        }
+    };
 
-    const data = appointmentData || { selected: {}, available_slots: [], month: "October 2023" };
-    const selectedDay = data.selected?.date ? parseInt(data.selected.date.split(" ")[1], 10) : 7;
+    const getDaysInMonth = () => {
+        return new Date(currentYear, currentMonth, 0).getDate();
+    };
+
+    const getFirstDayOfMonth = () => {
+        return new Date(currentYear, currentMonth - 1, 1).getDay();
+    };
+
+    const countAvailableSlots = (day) => {
+        if (!slotsData || !slotsData.days) return 0;
+        const dayStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayData = slotsData.days.find(d => d.date === dayStr);
+        if (!dayData) return 0;
+        return dayData.slots.filter(s => s.available).length;
+    };
+
+    const getDayData = (day) => {
+        if (!slotsData || !slotsData.days) return null;
+        const dayStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return slotsData.days.find(d => d.date === dayStr);
+    };
 
     return (
         <div className="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex flex-col font-display">
-            {/* Top Navigation */}
             <header className="flex items-center justify-between whitespace-nowrap border-b border-slate-200 dark:border-slate-800 px-6 py-3 bg-white/5 backdrop-blur-md sticky top-0 z-50">
                 <div className="flex items-center gap-8">
                     <div className="flex items-center gap-3 text-primary">
                         <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                             <span className="material-symbols-outlined text-background-dark">rocket_launch</span>
                         </div>
-                        <h2 className="text-slate-900 dark:text-white text-xl font-extrabold tracking-tight">VisaAI</h2>
+                        <h2 className="text-slate-900 dark:text-white text-xl font-extrabold tracking-tight">{L.APP_NAME_SHORT}</h2>
                     </div>
                     <nav className="hidden md:flex items-center gap-6">
-                        <Link className="text-slate-600 dark:text-slate-400 hover:text-primary dark:hover:text-primary text-sm font-medium transition-colors" to="/user-dashboard">Dashboard</Link>
-                        <Link className="text-slate-600 dark:text-slate-400 hover:text-primary dark:hover:text-primary text-sm font-medium transition-colors" to="/visa-progress-tracker">Applications</Link>
-                        <Link className="text-primary text-sm font-bold border-b-2 border-primary pb-1" to="/visa-appointment-scheduler">Appointments</Link>
-                        <Link className="text-slate-600 dark:text-slate-400 hover:text-primary dark:hover:text-primary text-sm font-medium transition-colors" to="/document-vault-upload-system">Documents</Link>
+                        <Link className="text-slate-600 dark:text-slate-400 hover:text-primary dark:hover:text-primary text-sm font-medium transition-colors" to={ROUTES.USER_DASHBOARD}>{L.DASHBOARD}</Link>
+                        <Link className="text-slate-600 dark:text-slate-400 hover:text-primary dark:hover:text-primary text-sm font-medium transition-colors" to={ROUTES.PROGRESS_TRACKER}>{L.APPLICATIONS}</Link>
+                        <Link className="text-primary text-sm font-bold border-b-2 border-primary pb-1" to={ROUTES.APPOINTMENT_SCHEDULER}>{L.SCHEDULER}</Link>
+                        <Link className="text-slate-600 dark:text-slate-400 hover:text-primary dark:hover:text-primary text-sm font-medium transition-colors" to={ROUTES.DOCUMENT_VAULT}>{L.DOCUMENTS}</Link>
                     </nav>
                 </div>
-                <div className="flex flex-1 justify-end gap-4 items-center">
-                    <label className="hidden lg:flex flex-col min-w-64">
-                        <div className="flex w-full items-stretch rounded-lg h-10 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-                            <div className="text-slate-400 flex items-center justify-center pl-3">
-                                <span className="material-symbols-outlined text-sm">search</span>
-                            </div>
-                            <input className="form-input w-full border-none bg-transparent focus:ring-0 text-sm placeholder:text-slate-500" placeholder="Search appointments..." type="text" />
-                        </div>
-                    </label>
-                    <div className="flex gap-2">
-                        <button aria-label="Notifications" onClick={() => console.log('Notifications Clicked')} className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-primary/10 hover:text-primary transition-all">
-                            <span className="material-symbols-outlined">notifications</span>
-                        </button>
-                        <button aria-label="Settings" onClick={() => console.log('Settings Clicked')} className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-primary/10 hover:text-primary transition-all">
-                            <span className="material-symbols-outlined">settings</span>
-                        </button>
-                    </div>
+                <div className="flex gap-2 items-center">
+                    <Button variant="icon" icon="notifications" aria-label="Notifications" />
                     <div className="w-10 h-10 rounded-full border-2 border-primary/20 p-0.5">
-                        <div className="w-full h-full rounded-full bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuDkiPUCIStRoCylo56eS9PLG42W-9fq-apMVSxt2ltVCJ6ID7ly3NUwuBaPb-2tal7XMD59OHIGHtS_GvLv7YbXuSTMl6XSy7vr25MXKNJR5KAbedLLkn_YWD_HtuV1owZBQjMbJHUwWal9jUHAmi-WAn18fhQpac-gFYXOL83FFTV2OSh5iQlF1IPX2701TmJqY3vRbtD_tiABKNeNYjpAknzwzcFTZry462XJYIf78F0v9bbWfIcBSSYKO_uYSs_TilZ3VHXi9hNM')" }}></div>
+                        <div className="w-full h-full rounded-full bg-cover bg-center" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=VisaAppointmentScheduler')" }}></div>
                     </div>
                 </div>
             </header>
-            <main className="flex-1 flex overflow-hidden">
-                {/* Sidebar Navigation */}
-                <aside className="w-64 hidden xl:flex flex-col border-r border-slate-200 dark:border-slate-800 p-6 gap-8">
-                    <div className="flex flex-col gap-2">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Main Menu</h3>
-                        <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all" to="/user-dashboard">
-                            <span className="material-symbols-outlined">dashboard</span>
-                            <span className="text-sm font-medium">Overview</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary border border-primary/20" to="/visa-appointment-scheduler">
-                            <span className="material-symbols-outlined fill-1">calendar_today</span>
-                            <span className="text-sm font-bold">Scheduler</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all" to="/">
-                            <span className="material-symbols-outlined">group</span>
-                            <span className="text-sm font-medium">Applicants</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-all" to="/ai-visa-chatbot">
-                            <span className="material-symbols-outlined">mail</span>
-                            <span className="text-sm font-medium">Messages</span>
-                        </Link>
+            {error && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-red-400 text-sm flex items-start gap-3 mx-6 mt-4">
+                    <span className="material-symbols-outlined text-lg shrink-0">error</span><span>{error}</span>
+                    <button onClick={() => setError('')} className="ml-auto text-red-400/70 hover:text-red-400"><span className="material-symbols-outlined text-lg">close</span></button>
+                </div>
+            )}
+            {success && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4 text-emerald-400 text-sm flex items-start gap-3 mx-6 mt-4">
+                    <span className="material-symbols-outlined text-lg shrink-0">check_circle</span><span>{success}</span>
+                    <button onClick={() => setSuccess('')} className="ml-auto text-emerald-400/70 hover:text-emerald-400"><span className="material-symbols-outlined text-lg">close</span></button>
+                </div>
+            )}
+            <main className="flex-1 p-4 md:p-8">
+                <div className="flex items-center justify-between mb-6">
+                    <h1 className="text-3xl font-black tracking-tight">{L.APPOINTMENT_SCHEDULER}</h1>
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                        <Button onClick={() => { setView('calendar'); setError(''); }} className={`px-4 py-2 rounded-lg text-sm font-bold ${view === 'calendar' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-500'}`}>Calendar</Button>
+                        <Button onClick={() => { setView('my-appointments'); setError(''); }} className={`px-4 py-2 rounded-lg text-sm font-bold ${view === 'my-appointments' ? 'bg-white dark:bg-slate-700 shadow-sm' : 'text-slate-500'}`}>{L.MY_APPOINTMENTS}</Button>
                     </div>
-                    <div className="mt-auto bg-primary/5 backdrop-blur-sm p-4 rounded-xl border border-primary/20">
-                        <p className="text-xs font-bold text-primary uppercase mb-2">Next Appointment</p>
-                        <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
-                                <span className="material-symbols-outlined">event_available</span>
-                            </div>
-                            <div>
-                                <p className="text-sm font-bold dark:text-white">Visa Interview</p>
-                                <p className="text-[10px] text-slate-500">In 2 days, 10:00 AM</p>
-                            </div>
-                        </div>
-                        <button onClick={() => console.log('View Details Clicked')} className="w-full py-2 bg-primary text-background-dark text-xs font-bold rounded-lg hover:opacity-90 transition-opacity">
-                            View Details
-                        </button>
-                    </div>
-                </aside>
-                {/* Main Content Area */}
-                <section className="flex-1 flex flex-col md:flex-row overflow-hidden">
-                    {/* Calendar Grid */}
-                    <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div>
-                                <h1 className="text-3xl font-black dark:text-white tracking-tight">Appointment Scheduler</h1>
-                                <p className="text-slate-500 dark:text-slate-400 text-sm">Optimize your visa interview timeline with AI-suggested slots.</p>
-                            </div>
-                            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                                <button onClick={() => console.log('Monthly View')} className="px-4 py-2 rounded-lg bg-white dark:bg-slate-700 shadow-sm text-sm font-bold">Monthly</button>
-                                <button onClick={() => console.log('Weekly View')} className="px-4 py-2 rounded-lg text-slate-500 text-sm font-medium">Weekly</button>
-                                <button onClick={() => console.log('Daily View')} className="px-4 py-2 rounded-lg text-slate-500 text-sm font-medium">Daily</button>
-                            </div>
-                        </div>
-                        {/* Calendar Header Controls */}
-                        <div className="flex items-center justify-between bg-primary/5 backdrop-blur-sm border border-white/5 p-4 rounded-xl">
-                            <div className="flex items-center gap-4">
-                                <button aria-label="Previous Month" onClick={() => console.log('Prev Month')} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-800">
-                                    <span className="material-symbols-outlined">chevron_left</span>
-                                </button>
-                                <h2 className="text-lg font-bold dark:text-white">{data.month}</h2>
-                                <button aria-label="Next Month" onClick={() => console.log('Next Month')} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-800">
-                                    <span className="material-symbols-outlined">chevron_right</span>
-                                </button>
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-2 rounded-full bg-primary/40 border border-primary/60 shadow-[0_0_15px_rgba(13,204,242,0.15)]"></div>
-                                    <span className="text-xs text-slate-400 font-medium">Available</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-2 rounded-full bg-slate-700"></div>
-                                    <span className="text-xs text-slate-400 font-medium">Booked</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-2 rounded-full bg-primary"></div>
-                                    <span className="text-xs text-slate-400 font-medium">Selected</span>
+                </div>
+
+                {view === 'calendar' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-2">
+                            <div className="flex items-center justify-between bg-primary/5 backdrop-blur-sm border border-white/5 p-4 rounded-xl mb-6">
+                                <div className="flex items-center gap-4">
+                                    <Button variant="icon" onClick={prevMonth} icon="chevron_left" />
+                                    <h2 className="text-lg font-bold">{MONTHS[currentMonth]} {currentYear}</h2>
+                                    <Button variant="icon" onClick={nextMonth} icon="chevron_right" />
                                 </div>
                             </div>
-                        </div>
-                        {/* Grid */}
-                        <div className="grid grid-cols-7 gap-px bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-                            {/* Days of Week */}
-                            <div className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">Sun</div>
-                            <div className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">Mon</div>
-                            <div className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">Tue</div>
-                            <div className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">Wed</div>
-                            <div className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">Thu</div>
-                            <div className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">Fri</div>
-                            <div className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">Sat</div>
-                            {/* Calendar Cells */}
-                            {/* Empty days from previous month for October 2023 (starts Sunday) */}
-                            {Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
-                                const isSelected = day === selectedDay;
-                                const available = data.available_slots.find(s => s.day === day);
-                                
-                                return (
-                                    <div key={day} className={`bg-white dark:bg-background-dark h-32 p-2 relative transition-colors ${isSelected ? 'border-2 border-primary ring-4 ring-primary/20 z-10' : 'hover:bg-slate-800/40 cursor-pointer'}`}>
-                                        <span className={`text-xs ${isSelected ? 'font-bold text-primary' : 'font-medium'}`}>{day}</span>
-                                        {isSelected && (
-                                            <>
-                                                <div className="mt-2 p-1.5 rounded bg-primary text-background-dark text-[10px] font-bold">Selected</div>
-                                                <div className="mt-1 p-1.5 rounded bg-primary/20 text-primary text-[10px] font-medium">{data.selected.time?.split(" - ")[0]}</div>
-                                            </>
-                                        )}
-                                        {available && !isSelected && (
-                                            <div className="mt-2 p-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold flex items-center gap-1 shadow-[0_0_15px_rgba(13,204,242,0.15)]">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-                                                {available.ai_optimized ? 'AI Optimized Slot' : `${available.count} Slots Available`}
+                            {loading ? (
+                                <div className="grid grid-cols-7 gap-px bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden animate-pulse">
+                                    {DAY_NAMES.map(d => <div key={d} className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold text-slate-500">{d}</div>)}
+                                    {Array.from({ length: 35 }, (_, i) => <div key={i} className="bg-white dark:bg-background-dark h-28"></div>)}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-7 gap-px bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                                    {DAY_NAMES.map(d => <div key={d} className="bg-slate-50 dark:bg-slate-900 py-3 text-center text-xs font-bold uppercase tracking-widest text-slate-500">{d}</div>)}
+                                    {Array.from({ length: getFirstDayOfMonth() }, (_, i) => <div key={`empty-${i}`} className="bg-white dark:bg-background-dark h-28"></div>)}
+                                    {Array.from({ length: getDaysInMonth() }, (_, i) => {
+                                        const day = i + 1;
+                                        const available = countAvailableSlots(day);
+                                        const hasAvailable = available > 0;
+                                        const isToday = day === today.getDate() && currentMonth === today.getMonth() + 1 && currentYear === today.getFullYear();
+                                        return (
+                                            <div key={day} onClick={() => handleDayClick(day)} className={`bg-white dark:bg-background-dark h-28 p-2 relative transition-colors ${hasAvailable ? 'cursor-pointer hover:bg-slate-800/40' : ''} ${slotPopupDay === day ? 'border-2 border-primary' : ''}`}>
+                                                <span className={`text-xs ${isToday ? 'font-bold text-primary' : 'font-medium'} ${isToday ? 'bg-primary/20 rounded-full w-6 h-6 inline-flex items-center justify-center' : ''}`}>{day}</span>
+                                                {hasAvailable && <div className="mt-3 p-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>{available} slot{available > 1 ? 's' : ''}</div>}
+                                                {slotPopupDay === day && selectedDaySlots && (
+                                                    <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-background-dark border border-slate-700 rounded-xl p-3 shadow-xl max-h-48 overflow-y-auto" onClick={e => e.stopPropagation()}>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Available Times</p>
+                                                        <div className="grid grid-cols-2 gap-1">
+                                                            {selectedDaySlots.slots.filter(s => s.available).map((slot, si) => (
+                                                                <button key={si} onClick={(e) => { e.stopPropagation(); handleSlotClick(selectedDaySlots.date, slot.time); }} className={`text-xs py-1.5 px-2 rounded-lg font-bold transition-all ${bookingSlot?.time_slot === slot.time && bookingSlot?.date === selectedDaySlots.date ? 'bg-primary text-background-dark' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}>{slot.display}</button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                        {day === 2 && !isSelected && <div className="mt-2 p-1.5 rounded bg-slate-800 text-[10px] text-slate-500 line-through">09:00 AM Full</div>}
-                                        {day === 13 && !isSelected && <div className="mt-2 p-1.5 rounded bg-slate-800 text-[10px] text-slate-500 line-through">Holiday</div>}
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                        <div className="space-y-6">
+                            {bookingSlot && (
+                                <div className="bg-primary/5 backdrop-blur-sm p-6 rounded-2xl border border-primary/20">
+                                    <h3 className="text-lg font-semibold mb-2">{L.CONFIRM_BOOKING}</h3>
+                                    <p className="text-slate-400 mb-1">Date: <span className="text-slate-200 font-medium">{bookingSlot.date}</span></p>
+                                    <p className="text-slate-400 mb-4">Time: <span className="text-slate-200 font-medium">{bookingSlot.time_slot}</span></p>
+                                    <div className="flex gap-3">
+                                        <Button onClick={confirmBooking} disabled={confirming}>
+                                            {confirming ? 'Booking...' : L.CONFIRM_BOOKING}
+                                        </Button>
+                                        <Button variant="secondary" onClick={() => setBookingSlot(null)}>{L.CANCEL}</Button>
                                     </div>
-                                );
-                            })}
+                                </div>
+                            )}
+                            <div className="bg-primary/5 backdrop-blur-sm border border-primary/10 p-5 rounded-2xl">
+                                <h4 className="text-xs font-bold text-primary uppercase tracking-widest mb-3">Quick Info</h4>
+                                <div className="space-y-2 text-sm text-slate-400">
+                                    <p><span className="text-slate-200 font-medium">Hours:</span> Mon-Fri, 9AM-5PM</p>
+                                    <p><span className="text-slate-200 font-medium">Duration:</span> 60 min per slot</p>
+                                    <p><span className="text-slate-200 font-medium">Location:</span> VFS Global Center</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    {/* Detail Overlay / Sidebar */}
-                    <div className="w-full md:w-96 border-l border-slate-200 dark:border-slate-800 bg-white/5 backdrop-blur-xl flex flex-col p-6 gap-6">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-xl font-bold dark:text-white">Appointment Details</h3>
-                            <button aria-label="Close Details" onClick={() => console.log('Close Panel')} className="text-slate-500 hover:text-white">
-                                <span className="material-symbols-outlined">close</span>
-                            </button>
-                        </div>
-                        {/* Selected Slot Card */}
-                        <div className="bg-primary/5 backdrop-blur-sm border border-primary/20 p-5 rounded-2xl relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-3">
-                                <span className="material-symbols-outlined text-primary/40 text-4xl">verified</span>
+                )}
+
+                {view === 'my-appointments' && (
+                    <div>
+                        {myAppointments.length === 0 ? (
+                            <div className="text-center py-16">
+                                <span className="material-symbols-outlined text-5xl text-slate-600 mb-4">calendar_month</span>
+                                <p className="text-slate-400 text-lg">No appointments booked yet.</p>
                             </div>
-                            <p className="text-xs font-bold text-primary uppercase tracking-widest mb-1">Selected Slot</p>
-                            <h4 className="text-2xl font-black dark:text-white mb-4">{data.selected?.date || "Not Selected"}</h4>
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-3">
-                                    <span className="material-symbols-outlined text-slate-500 text-sm">schedule</span>
-                                    <span className="text-sm font-medium dark:text-slate-200">{data.selected?.time || "--"}</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="material-symbols-outlined text-slate-500 text-sm">location_on</span>
-                                    <span className="text-sm font-medium dark:text-slate-200">{data.selected?.location || "--"}</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="material-symbols-outlined text-slate-500 text-sm">person</span>
-                                    <span className="text-sm font-medium dark:text-slate-200">{data.selected?.agent || "--"}</span>
-                                </div>
+                        ) : (
+                            <div className="space-y-4 max-w-2xl">
+                                {myAppointments.map(apt => (
+                                    <div key={apt.id} className="bg-background-dark/80 p-5 rounded-2xl border border-slate-800 flex items-center justify-between">
+                                        <div>
+                                            <p className="font-medium">{apt.date} — {apt.time_slot}</p>
+                                            <p className="text-sm text-slate-400">{apt.location}</p>
+                                            <span className={`text-xs font-bold uppercase tracking-wider ${apt.status === 'confirmed' ? 'text-emerald-400' : 'text-red-400'}`}>{apt.status}</span>
+                                        </div>
+                                        {apt.status === 'confirmed' && (
+                                            <Button variant="danger" onClick={() => cancelBooking(apt.id)}>{L.CANCEL}</Button>
+                                        )}
+                                    </div>
+                                ))}
                             </div>
-                        </div>
-                        {/* Actions Interface */}
-                        <div className="space-y-3">
-                            <button onClick={() => console.log('Confirm Booking Clicked')} className="w-full py-3 bg-primary text-background-dark font-bold rounded-xl hover:shadow-[0_0_20px_rgba(13,204,242,0.4)] transition-all flex items-center justify-center gap-2">
-                                <span className="material-symbols-outlined">check_circle</span>
-                                Confirm Booking
-                            </button>
-                            <button onClick={() => console.log('Reschedule Clicked')} className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl border border-slate-700 hover:bg-slate-700 transition-all flex items-center justify-center gap-2">
-                                <span className="material-symbols-outlined">history</span>
-                                Reschedule
-                            </button>
-                        </div>
-                        <hr className="border-slate-800" />
-                        {/* Reminders & Notifications Toggle */}
-                        <div className="space-y-4">
-                            <h5 className="text-sm font-bold dark:text-white flex items-center gap-2">
-                                <span className="material-symbols-outlined text-primary">notifications_active</span>
-                                Appointment Reminders
-                            </h5>
-                            <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
-                                <div className="flex flex-col">
-                                    <span className="text-xs font-bold">Email Notifications</span>
-                                    <span className="text-[10px] text-slate-500">24h & 2h before interview</span>
-                                </div>
-                                <div className="w-10 h-5 bg-primary rounded-full relative">
-                                    <div className="absolute right-1 top-1 w-3 h-3 bg-background-dark rounded-full"></div>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
-                                <div className="flex flex-col">
-                                    <span className="text-xs font-bold">SMS Alerts</span>
-                                    <span className="text-[10px] text-slate-500">Emergency updates only</span>
-                                </div>
-                                <div className="w-10 h-5 bg-slate-700 rounded-full relative">
-                                    <div className="absolute left-1 top-1 w-3 h-3 bg-slate-400 rounded-full"></div>
-                                </div>
-                            </div>
-                        </div>
-                        {/* Quick Tips AI */}
-                        <div className="mt-auto p-4 rounded-xl bg-gradient-to-br from-primary/10 to-transparent border border-primary/10">
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="material-symbols-outlined text-primary text-sm">psychology</span>
-                                <span className="text-xs font-bold text-primary uppercase">AI Preparation Tip</span>
-                            </div>
-                            <p className="text-[11px] text-slate-400 leading-relaxed">
-                                Based on your visa type (H-1B), we recommend bringing your original I-797 and latest three pay stubs. Most successful applicants for this consulate report 10:30 AM slots have the shortest wait times.
-                            </p>
-                        </div>
+                        )}
                     </div>
-                </section>
+                )}
             </main>
-            {/* Floating Action for Quick Add (Mobile Only) */}
-            <button aria-label="Add Appointment" onClick={() => console.log('Add Appointment Clicked')} className="md:hidden fixed bottom-6 right-6 w-14 h-14 bg-primary rounded-full shadow-[0_4px_14px_0_rgba(13,204,242,0.39)] flex items-center justify-center text-background-dark z-50">
-                <span className="material-symbols-outlined text-3xl">add</span>
-            </button>
         </div>
     );
 };

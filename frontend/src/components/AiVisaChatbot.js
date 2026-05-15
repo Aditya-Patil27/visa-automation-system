@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const AiVisaChatbot = () => {
     const [messages, setMessages] = useState([
@@ -7,18 +11,20 @@ const AiVisaChatbot = () => {
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [suggestionChips, setSuggestionChips] = useState([
+        "What documents do I need for France?",
+        "Check my eligibility",
+        "Cost of Tourist Visa",
+        "Interview tips",
+    ]);
     const [eligibilityMode, setEligibilityMode] = useState(false);
     const [eligibilityData, setEligibilityData] = useState({
-        travel_purpose: '',
-        duration_days: '',
-        country: '',
-        nationality: '',
-        has_passport: true,
-        has_prior_visa: false,
-        criminal_record: false,
-        has_ties: true
+        travel_purpose: '', duration_days: '', country: '',
+        nationality: '', has_passport: true, has_prior_visa: false,
+        criminal_record: false, has_ties: true
     });
     const messagesEndRef = useRef(null);
+    const fileInputRef = useRef(null);
     const navigate = useNavigate();
 
     const scrollToBottom = () => {
@@ -29,27 +35,23 @@ const AiVisaChatbot = () => {
         scrollToBottom();
     }, [messages, loading]);
 
-    const handleSend = async () => {
-        // If in eligibility mode, collect data and submit
+    const handleSend = async (overrideText) => {
+        const textToSend = overrideText || input;
+        if (!textToSend.trim()) return;
+        if (!overrideText) setInput('');
+
         if (eligibilityMode) {
             const key = Object.keys(eligibilityData).find(k => !eligibilityData[k] && k !== 'has_passport' && k !== 'has_prior_visa' && k !== 'criminal_record' && k !== 'has_ties');
-            if (key && input.trim()) {
-                const newData = { ...eligibilityData, [key]: input.trim() };
+            if (key && textToSend.trim()) {
+                const newData = { ...eligibilityData, [key]: textToSend.trim() };
                 setEligibilityData(newData);
-                setInput('');
-                
-                // Check if we have all required data
                 if (newData.country && newData.travel_purpose) {
-                    // Submit eligibility check
                     setLoading(true);
                     try {
                         const token = localStorage.getItem('access_token');
                         const res = await fetch('http://localhost:8000/eligibility', {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${token}`
-                            },
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                             body: JSON.stringify({
                                 travel_purpose: newData.travel_purpose,
                                 duration_days: newData.duration_days ? parseInt(newData.duration_days) : null,
@@ -61,71 +63,39 @@ const AiVisaChatbot = () => {
                                 has_ties: newData.has_ties
                             })
                         });
-                        
                         if (res.ok) {
                             const data = await res.json();
-                            const status = data.eligible 
-                                ? "✅ PRELIMINARY ELIGIBLE" 
-                                : "⚠️ PRELIMINARY NOT ELIGIBLE";
+                            const status = data.eligible ? "✅ PRELIMINARY ELIGIBLE" : "⚠️ PRELIMINARY NOT ELIGIBLE";
                             const response = `${status}\n\nVisa Type: ${data.visa_type}\nConfidence: ${Math.round(data.confidence * 100)}%\n\nRequirements Met:\n${data.requirements_met?.join('\n') || 'None listed'}\n\nRequirements Missing:\n${data.requirements_missing?.join('\n') || 'None'}\n\n${data.notes ? `Notes: ${data.notes}` : ''}`;
                             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
                         } else {
                             setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error while checking your eligibility." }]);
                         }
                     } catch (err) {
-                        console.error(err);
                         setMessages(prev => [...prev, { role: 'assistant', content: "Network error. Please try again later." }]);
                     } finally {
                         setLoading(false);
                         setEligibilityMode(false);
-                        setEligibilityData({
-                            travel_purpose: '',
-                            duration_days: '',
-                            country: '',
-                            nationality: '',
-                            has_passport: true,
-                            has_prior_visa: false,
-                            criminal_record: false,
-                            has_ties: true
-                        });
+                        setEligibilityData({ travel_purpose: '', duration_days: '', country: '', nationality: '', has_passport: true, has_prior_visa: false, criminal_record: false, has_ties: true });
                     }
                     return;
                 }
-                
-                // Continue collecting data
-                const nextQuestion = key === 'travel_purpose' ? "What is your destination country?" :
-                    key === 'country' ? "How long do you plan to stay (in days)?" :
-                    key === 'duration_days' ? "What is your nationality?" :
-                    "";
+                const nextQuestion = key === 'travel_purpose' ? "What is your destination country?" : key === 'country' ? "How long do you plan to stay (in days)?" : key === 'duration_days' ? "What is your nationality?" : "";
                 setMessages(prev => [...prev, { role: 'assistant', content: nextQuestion }]);
                 return;
             }
         }
-        
-        if (!input.trim()) return;
-        const userMsg = input;
-        
-        // Check for eligibility trigger
-        if (userMsg.toLowerCase().includes('check my eligibility') || userMsg.toLowerCase().includes('eligibility')) {
+
+        if (textToSend.toLowerCase().includes('check my eligibility') || textToSend.toLowerCase().includes('eligibility')) {
             setEligibilityMode(true);
-            setEligibilityData({
-                travel_purpose: '',
-                duration_days: '',
-                country: '',
-                nationality: '',
-                has_passport: true,
-                has_prior_visa: false,
-                criminal_record: false,
-                has_ties: true
-            });
-            setInput('');
-            setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+            setEligibilityData({ travel_purpose: '', duration_days: '', country: '', nationality: '', has_passport: true, has_prior_visa: false, criminal_record: false, has_ties: true });
+            setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
             setMessages(prev => [...prev, { role: 'assistant', content: "I'll help you check your visa eligibility. What is your travel purpose? (tourism, business, work, study, or transit)" }]);
             return;
         }
-        
-        setInput('');
-        setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+
+        setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
         setLoading(true);
 
         try {
@@ -135,26 +105,102 @@ const AiVisaChatbot = () => {
                 return;
             }
 
-            const res = await fetch('http://localhost:8000/chat', {
+            const res = await fetch('http://localhost:8000/chat/stream', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ question: userMsg })
+                body: JSON.stringify({ question: textToSend })
             });
 
-            if (res.ok) {
-                const data = await res.json();
-                setMessages(prev => [...prev, { role: 'assistant', content: data.answer }]);
-            } else if (res.status === 401) {
-                navigate('/login');
+            if (!res.ok) {
+                if (res.status === 401) {
+                    navigate('/login');
+                    return;
+                }
+                setMessages(prev => {
+                    const msgs = [...prev];
+                    msgs[msgs.length - 1] = { role: 'assistant', content: "Sorry, I encountered an error while processing your request." };
+                    return msgs;
+                });
+                return;
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let fullResponse = '';
+            let streamDone = false;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    if (trimmed.startsWith('data: ')) {
+                        const dataStr = trimmed.slice(6);
+                        if (dataStr === '[DONE]') {
+                            streamDone = true;
+                            break;
+                        }
+                        try {
+                            const parsed = JSON.parse(dataStr);
+                            if (parsed.token) {
+                                fullResponse += parsed.token;
+                                setMessages(prev => {
+                                    const msgs = [...prev];
+                                    const last = { ...msgs[msgs.length - 1] };
+                                    last.content += parsed.token;
+                                    msgs[msgs.length - 1] = last;
+                                    return msgs;
+                                });
+                            }
+                        } catch (_) {
+                            // Skip malformed JSON lines
+                        }
+                    }
+                }
+                if (streamDone) break;
+            }
+
+            // Dynamic suggestion chips update based on response context
+            const lower = fullResponse.toLowerCase();
+            if (lower.includes('france') || lower.includes('schengen') || lower.includes('europe')) {
+                setSuggestionChips([
+                    "What documents do I need for Schengen?",
+                    "Schengen visa fees",
+                    "Processing time for France visa",
+                    "Travel insurance requirements",
+                ]);
+            } else if (lower.includes('eligibility') || lower.includes('check') || lower.includes('qualify')) {
+                setSuggestionChips([
+                    "Check my eligibility for UK visa",
+                    "Am I eligible for US visa?",
+                    "Eligibility criteria for Schengen",
+                    "Work visa eligibility check",
+                ]);
             } else {
-                setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error while processing your request." }]);
+                setSuggestionChips([
+                    "What documents do I need for France?",
+                    "Check my eligibility",
+                    "Cost of Tourist Visa",
+                    "Interview tips",
+                ]);
             }
         } catch (err) {
             console.error(err);
-             setMessages(prev => [...prev, { role: 'assistant', content: "Network error. Please try again later." }]);
+            setMessages(prev => {
+                const msgs = [...prev];
+                msgs[msgs.length - 1] = { role: 'assistant', content: "Network error. Please try again later." };
+                return msgs;
+            });
         } finally {
             setLoading(false);
         }
@@ -162,6 +208,66 @@ const AiVisaChatbot = () => {
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter') handleSend();
+    };
+
+    const handleChipClick = (text) => {
+        handleSend(text);
+    };
+
+    const handleAttachFile = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setMessages(prev => [...prev, { role: 'user', content: `📎 Uploading: ${file.name}` }]);
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('access_token');
+            if (!token) { navigate('/login'); return; }
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch('http://localhost:8000/ocr', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData,
+            });
+            if (res.ok) {
+                const data = await res.json();
+                
+                if (data.ocr_text && data.ocr_text.includes('[OCR error')) {
+                    setMessages(prev => [...prev, { role: 'assistant', content: `❌ **Document scan failed for ${data.filename}:**\n\n${data.ocr_text}` }]);
+                    return;
+                }
+
+                let msg = `📄 **OCR Results for ${data.filename}:**\n\n`;
+                if (data.extracted_fields && Object.keys(data.extracted_fields).length > 0) {
+                    const fields = data.extracted_fields;
+                    if (fields.full_name) msg += `• Name: ${fields.full_name}\n`;
+                    if (fields.passport_number) msg += `• Passport: ${fields.passport_number}\n`;
+                    if (fields.nationality) msg += `• Nationality: ${fields.nationality}\n`;
+                    if (fields.dates_found) msg += `• Dates: ${fields.dates_found.join(', ')}\n`;
+                }
+                if (data.ocr_text) {
+                    msg += `\nExtracted Text:\n${data.ocr_text}`;
+                }
+                setMessages(prev => [...prev, { role: 'assistant', content: msg }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: "Failed to process the uploaded file." }]);
+            }
+        } catch (err) {
+            console.error(err);
+            setMessages(prev => [...prev, { role: 'assistant', content: "Error uploading file. Please try again." }]);
+        } finally {
+            setLoading(false);
+            e.target.value = '';
+        }
+    };
+
+    const handleShare = () => {
+        const chatText = messages.map(m => `${m.role === 'user' ? 'You' : 'VisaAI'}: ${m.content}`).join('\n\n');
+        navigator.clipboard.writeText(chatText).then(() => {
+            alert('Chat copied to clipboard!');
+        }).catch(() => {
+            alert('Failed to copy chat.');
+        });
     };
 
     return (
@@ -176,49 +282,40 @@ const AiVisaChatbot = () => {
                         <h1 className="text-xl font-bold tracking-tight">VisaAI</h1>
                     </div>
                     <div className="px-4 mb-4">
-                        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/20 transition-all text-primary font-medium">
-                            <span className="material-symbols-outlined text-xl">add_circle</span>
-                            New Consultation
-                        </button>
+                        <Button variant="secondary" className="w-full justify-start" icon="add_circle"
+                            onClick={() => { setMessages([{ role: 'assistant', content: "Hello! I'm your dedicated VisaAI assistant. What's your next destination?" }]); setInput(''); }}>
+                            {L.NEW_CONSULTATION}
+                        </Button>
                     </div>
                     <nav className="flex-1 overflow-y-auto px-4 space-y-6">
                         <div>
                             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 px-2">History</h3>
                             <div className="space-y-1">
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/5 text-primary border border-primary/10" to="#!">
+                                <Button variant="nav" className="bg-primary/5 text-primary border border-primary/10" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
-                                    <span className="text-sm truncate">UK Visa Requirements</span>
-                                </Link>
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
+                                    <span className="text-sm truncate">General Visa Requirements</span>
+                                </Button>
+                                <Button variant="nav" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
                                     <span className="text-sm truncate">Schengen Eligibility Check</span>
-                                </Link>
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
+                                </Button>
+                                <Button variant="nav" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
                                     <span className="text-sm truncate">US B1/B2 Interview Prep</span>
-                                </Link>
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
+                                </Button>
+                                <Button variant="nav" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
                                     <span className="text-sm truncate">Digital Nomad Portugal</span>
-                                </Link>
-                            </div>
-                        </div>
-                        <div>
-                            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 px-2">Saved Documents</h3>
-                            <div className="space-y-1">
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
-                                    <span className="material-symbols-outlined text-xl">description</span>
-                                    <span className="text-sm">UK Checklist.pdf</span>
-                                </Link>
+                                </Button>
                             </div>
                         </div>
                         <div className="mt-8">
-                            <Link to="/admin-dashboard" className="text-xs font-medium text-slate-400 hover:text-primary">&larr; Back to Admin Dashboard</Link>
+                            <Button variant="ghost" size="sm" to={ROUTES.USER_DASHBOARD}>&larr; {L.DASHBOARD}</Button>
                         </div>
                     </nav>
                     <div className="p-4 border-t border-slate-200 dark:border-primary/10">
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100 dark:bg-primary/5">
-                            <img className="w-10 h-10 rounded-full object-cover" alt="User profile avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRF1GzJnjIbh-lJcyj-OR0a4il3OEdbwczXBJASqvW5kqO0pG404ru_EBtsFGKcipD6cKSCxhlACKGJczifY-Ar_djTMOahe0VAbLjaa8jB1wo6sCuR35J5kkDYzi28umYwBXK3TndSBGKfunjv1a_b7uZOlcwbzr3iOaF3os0XiopbgA-XzccPFZMmMZtv9GPp9MMLfw9wXhu_oVetkO_uN0SLca_xvJoj4W70dm4oYcWm3HYdu3xcGUYL4v19UXYiQ0Ao03s2CHK" />
+                            <img className="w-10 h-10 rounded-full object-cover" alt="User profile avatar" src="https://i.pravatar.cc/150?u=AiVisaChatbot" />
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold truncate">Alex Johnson</p>
                                 <p className="text-xs text-slate-500 dark:text-primary/60">Premium Member</p>
@@ -243,26 +340,19 @@ const AiVisaChatbot = () => {
                                     Eligibility Check
                                 </span>
                             ) : (
-                                <span className="text-sm font-bold">UK Standard Visitor Visa</span>
+                                <span className="text-sm font-bold">Standard Tourist Visa</span>
                             )}
                         </div>
                         <div className="flex items-center gap-4">
                             {eligibilityMode && (
-                                <button onClick={() => {
-                                    setEligibilityMode(false);
-                                    setMessages(prev => [...prev, { role: 'assistant', content: "Eligibility check cancelled. How else can I help you?" }]);
-                                }} className="text-xs text-red-500 hover:text-red-600 font-medium">
-                                    Cancel
-                                </button>
+                                <button onClick={() => { setEligibilityMode(false); setMessages(prev => [...prev, { role: 'assistant', content: "Eligibility check cancelled. How else can I help you?" }]); }} className="text-xs text-red-500 hover:text-red-600 font-medium">Cancel</button>
                             )}
                             <button className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary transition-colors">
                                 <span className="material-symbols-outlined text-lg">share</span>
                                 Share
                             </button>
                             <div className="h-4 w-[1px] bg-slate-200 dark:bg-primary/20"></div>
-                            <button className="bg-primary text-background-dark text-sm font-bold px-4 py-1.5 rounded-lg hover:opacity-90 transition-all">
-                                Upgrade
-                            </button>
+                            <Button size="sm" to={ROUTES.REGISTER}>{L.UPGRADE}</Button>
                         </div>
                     </header>
                     {/* Chat Window */}
@@ -305,35 +395,15 @@ const AiVisaChatbot = () => {
                     <footer className="p-8 z-10 relative">
                         {/* Suggested Chips */}
                         <div className="flex flex-wrap gap-2 mb-6 max-w-4xl mx-auto justify-center">
-                            <button onClick={() => setInput('What documents do I need for France?')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                What documents do I need for France?
-                            </button>
-                            <button onClick={() => {
-                                setEligibilityMode(true);
-                                setEligibilityData({
-                                    travel_purpose: '',
-                                    duration_days: '',
-                                    country: '',
-                                    nationality: '',
-                                    has_passport: true,
-                                    has_prior_visa: false,
-                                    criminal_record: false,
-                                    has_ties: true
-                                });
-                                setMessages(prev => [...prev, { role: 'assistant', content: "I'll help you check your visa eligibility. What is your travel purpose? (tourism, business, work, study, or transit)" }]);
-                            }} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                Check my eligibility
-                            </button>
-                            <button onClick={() => setInput('Cost of UK Visa')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                Cost of UK Visa
-                            </button>
-                            <button onClick={() => setInput('Interview tips')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">
-                                Interview tips
-                            </button>
+                            <button onClick={() => setInput('What documents do I need for France?')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">What documents do I need for France?</button>
+                            <button onClick={() => { setEligibilityMode(true); setEligibilityData({ travel_purpose: '', duration_days: '', country: '', nationality: '', has_passport: true, has_prior_visa: false, criminal_record: false, has_ties: true }); setMessages(prev => [...prev, { role: 'assistant', content: "I'll help you check your visa eligibility. What is your travel purpose? (tourism, business, work, study, or transit)" }]); }} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">Check my eligibility</button>
+                            <button onClick={() => setInput('Cost of UK Visa')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">Cost of UK Visa</button>
+                            <button onClick={() => setInput('Interview tips')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">Interview tips</button>
                         </div>
                         {/* Input Container */}
                         <div className="max-w-4xl mx-auto bg-background-dark/70 backdrop-blur-xl border border-primary/10 p-2 rounded-2xl shadow-2xl flex items-center gap-2">
-                            <button className="p-3 text-slate-400 hover:text-primary transition-colors">
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={handleAttachFile} />
+                            <button onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-400 hover:text-primary transition-colors" title="Upload document for OCR">
                                 <span className="material-symbols-outlined">attach_file</span>
                             </button>
                             <input 
@@ -345,10 +415,10 @@ const AiVisaChatbot = () => {
                                 onKeyDown={handleKeyDown}
                                 disabled={loading}
                             />
-                            <button className="p-3 text-slate-400 hover:text-primary transition-colors">
+                            <button className="p-3 text-slate-400 hover:text-slate-600 transition-colors cursor-not-allowed opacity-50" title="Voice input coming soon" disabled>
                                 <span className="material-symbols-outlined">mic</span>
                             </button>
-                            <button onClick={handleSend} disabled={loading || !input.trim()} className="bg-primary text-background-dark p-3 rounded-xl shadow-[0_0_15px_rgba(13,204,242,0.4)] hover:scale-105 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100">
+                            <button onClick={() => handleSend()} disabled={loading || !input.trim()} className="bg-primary text-background-dark p-3 rounded-xl shadow-[0_0_15px_rgba(13,204,242,0.4)] hover:scale-105 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100">
                                 <span className="material-symbols-outlined font-bold">send</span>
                             </button>
                         </div>

@@ -1,41 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import Button from './ui/Button';
+import SidebarNav from './ui/SidebarNav';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { NAV_ITEMS_ADMIN } from '../config/navigation';
 
 const AdminDashboardOverview = () => {
     const [dashboardData, setDashboardData] = useState(null);
     const [scraperLogs, setScraperLogs] = useState([]);
     const [loading, setLoading] = useState(true);
-    const navigate = useNavigate();
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const token = localStorage.getItem('access_token');
-                if (!token) {
-                    navigate('/login');
-                    return;
-                }
-                const [resDash, resLogs] = await Promise.all([
-                    fetch('http://localhost:8000/dashboard/admin', { headers: { 'Authorization': `Bearer ${token}` } }),
-                    fetch('http://localhost:8000/scraper-logs', { headers: { 'Authorization': `Bearer ${token}` } })
+                const [dataDash, dataLogs] = await Promise.all([
+                    api.get('/dashboard/admin'),
+                    api.get('/scraper-logs'),
                 ]);
-                
-                if (resDash.ok && resLogs.ok) {
-                    const dataDash = await resDash.json();
-                    const dataLogs = await resLogs.json();
-                    setDashboardData(dataDash);
-                    setScraperLogs(dataLogs);
-                } else {
-                    if (resDash.status === 401 || resDash.status === 403) navigate('/login');
-                }
+                setDashboardData(dataDash);
+                setScraperLogs(dataLogs);
             } catch (err) {
+                if (err?.status === 401 || err?.status === 403) { return; }
                 console.error("Failed to fetch dashboard data:", err);
             } finally {
                 setLoading(false);
             }
         };
         fetchData();
-    }, [navigate]);
+    }, []);
 
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading admin dashboard...</div>;
@@ -62,39 +55,10 @@ const AdminDashboardOverview = () => {
                         <p className="text-xs text-slate-500 dark:text-slate-400">SaaS Automation</p>
                     </div>
                 </div>
-                <nav className="flex-1 px-4 space-y-1 mt-4">
-                    <Link className="flex items-center gap-3 px-3 py-2.5 bg-gradient-to-r from-primary/15 to-transparent border-l-[3px] border-primary rounded-r-lg text-primary transition-colors" to="/admin-dashboard">
-                        <span className="material-symbols-outlined">dashboard</span>
-                        <span className="text-sm font-medium">Admin Dashboard</span>
-                    </Link>
-                    <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors" to="/visa-knowledge-management">
-                        <span className="material-symbols-outlined">menu_book</span>
-                        <span className="text-sm font-medium">Visa Knowledge</span>
-                    </Link>
-                    <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors" to="/scraper-monitoring-dashboard">
-                        <span className="material-symbols-outlined">account_balance</span>
-                        <span className="text-sm font-medium">Embassy Manager</span>
-                    </Link>
-                    <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors" to="/ai-visa-chatbot">
-                        <span className="material-symbols-outlined">smart_toy</span>
-                        <span className="text-sm font-medium">Chatbot Control</span>
-                    </Link>
-                    <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors" to="/user-dashboard">
-                        <span className="material-symbols-outlined">group</span>
-                        <span className="text-sm font-medium">User Management</span>
-                    </Link>
-                    <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors" to="/approval-workflow">
-                        <span className="material-symbols-outlined">rule</span>
-                        <span className="text-sm font-medium">Approval Workflow</span>
-                    </Link>
-                    <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors" to="/activity-logs">
-                        <span className="material-symbols-outlined">history</span>
-                        <span className="text-sm font-medium">Logs & Activity</span>
-                    </Link>
-                </nav>
+                <SidebarNav items={NAV_ITEMS_ADMIN} activeRoute="/admin-dashboard-overview" />
                 <div className="p-6 border-t border-slate-200 dark:border-slate-800">
                     <div className="flex items-center gap-3">
-                        <div className="size-10 rounded-full bg-slate-200 dark:bg-slate-800 bg-center bg-cover" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAX8BZiUIi_lw5AH879LATacvtG9l5m71wgE5kTRzDMK8sW2u-cUg27daHXfCY-QUzOb8FdBpHW4jPGWogw8afh0tgP0veI3diIQhTQ71WKKzLiGdPUt5gZACpqcEwTOxawZJnxngfztTHMtp4HmGHXQpJLNaiDaPt0Dg_QHQctRH7tcmnoFPm0n3qLdcTtYr92Ghk9cNp_tvtXXQDPXgmsHagt8BEf1WqpW3roVUHNoBxq8Q5nl_ZsoxzL7J2v3rl7a8eK9uTQsVo5')" }}></div>
+                        <div className="size-10 rounded-full bg-slate-200 dark:bg-slate-800 bg-center bg-cover" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=AdminDashboardOverview')" }}></div>
                         <div className="overflow-hidden">
                             <p className="text-sm font-semibold truncate">{data.admin_name}</p>
                             <p className="text-xs text-slate-500 truncate">System Admin</p>
@@ -114,13 +78,8 @@ const AdminDashboardOverview = () => {
                         </label>
                     </div>
                     <div className="flex items-center gap-4">
-                        <button className="size-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 relative">
-                            <span className="material-symbols-outlined">notifications</span>
-                            <span className="absolute top-2 right-2 size-2 bg-primary rounded-full border-2 border-background-dark"></span>
-                        </button>
-                        <button className="size-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500">
-                            <span className="material-symbols-outlined">settings</span>
-                        </button>
+                        <Button variant="icon" icon="notifications" />
+                        <Button variant="icon" icon="settings" />
                     </div>
                 </header>
                 <div className="p-8 space-y-8">
@@ -130,10 +89,7 @@ const AdminDashboardOverview = () => {
                             <h2 className="text-3xl font-bold tracking-tight">Overview</h2>
                             <p className="text-slate-500 dark:text-slate-400 mt-1">Real-time system monitoring and automation metrics.</p>
                         </div>
-                        <button className="bg-primary hover:bg-primary/90 text-background-dark px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2">
-                            <span className="material-symbols-outlined text-lg">download</span>
-                            Export Report
-                        </button>
+                        <Button icon="download" onClick={() => {}}>{L.EXPORT}</Button>
                     </div>
                     {/* Analytics Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -310,7 +266,7 @@ const AdminDashboardOverview = () => {
                         <div className="lg:col-span-2 glass rounded-xl overflow-hidden">
                             <div className="p-6 border-b border-white/5 flex justify-between items-center">
                                 <h4 className="font-bold text-lg">System Logs & Activity</h4>
-                                <Link to="/activity-logs" className="text-xs text-primary font-bold hover:underline uppercase tracking-widest">View All</Link>
+                                <Button variant="ghost" size="sm" to="/activity-logs" className="uppercase tracking-widest">{L.VIEW_ALL}</Button>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left">

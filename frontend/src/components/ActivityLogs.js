@@ -1,5 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import Button from './ui/Button';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const ActivityLogs = () => {
     return (
@@ -17,30 +20,30 @@ const ActivityLogs = () => {
                         </div>
                     </div>
                     <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" to="/admin-dashboard">
+                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" to={ROUTES.ADMIN_DASHBOARD}>
                             <span className="material-symbols-outlined text-[20px]">dashboard</span>
-                            <span className="text-sm font-medium">Dashboard</span>
+                            <span className="text-sm font-medium">{L.DASHBOARD}</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" to="/visa-knowledge-management">
+                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" to={ROUTES.KNOWLEDGE_MGMT}>
                             <span className="material-symbols-outlined text-[20px]">database</span>
                             <span className="text-sm font-medium">Knowledge Base</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" to="/user-dashboard">
+                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" to={ROUTES.USER_DASHBOARD}>
                             <span className="material-symbols-outlined text-[20px]">group</span>
                             <span className="text-sm font-medium">Users</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary" to="/activity-logs">
+                        <Link className="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary" to={ROUTES.ACTIVITY_LOGS}>
                             <span className="material-symbols-outlined text-[20px]">history</span>
                             <span className="text-sm font-semibold">Logs & Activity</span>
                         </Link>
                         <Link className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" to="/">
                             <span className="material-symbols-outlined text-[20px]">settings</span>
-                            <span className="text-sm font-medium">Settings (Home)</span>
+                            <span className="text-sm font-medium">{L.SETTINGS}</span>
                         </Link>
                     </nav>
                     <div className="p-4 mt-auto border-t border-slate-200 dark:border-slate-800">
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100/50 dark:bg-slate-800/50">
-                            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAskCM_4JtWQ6eVysoCOgC4iu86_64deczOKZFupX2Qx1tWgS0hZ1GmIlsg7KOvHJqy1Ckl9ThTGI2mI1a0NBIQaSxFjbd-trvAEt6WjtIWwievLZfe-sGSFTSZQPPWw3-LDZS4_9_FIwrncnRxGMs9XBF-H2wVmHktuCpRvvPTXPUPW922IW1QBMLwcH21Hwhd4NG03e6OysLL9kyi3bL76XjsbNAy42pI64omwoHVQa6LtGBpVDSbFpo8W9PeUKLHQM12t3BSlz0S')" }}></div>
+                            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 bg-cover bg-center" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=ActivityLogs')" }}></div>
                             <div className="flex-1 overflow-hidden">
                                 <p className="text-xs font-bold truncate">Marcus Thorne</p>
                                 <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">Head Admin</p>
@@ -60,10 +63,9 @@ const ActivityLogs = () => {
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
-                            <button className="relative p-2 text-slate-500 dark:text-slate-400 hover:text-primary transition-colors">
-                                <span className="material-symbols-outlined text-[24px]">notifications</span>
+                            <Button variant="icon" icon="notifications" className="relative">
                                 <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-background-dark"></span>
-                            </button>
+                            </Button>
                             <div className="h-6 w-px bg-slate-200 dark:bg-slate-800"></div>
                             <div className="flex items-center gap-3">
                                 <div className="text-right hidden sm:block">
@@ -85,15 +87,14 @@ const ActivityLogs = () => {
                                     <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-slate-100 uppercase">Activity Logs</h2>
                                     <p className="text-sm text-slate-500 dark:text-slate-400">Review and audit all platform operations</p>
                                 </div>
-                                <button className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg text-sm font-bold transition-all border border-slate-200 dark:border-slate-700 shadow-sm">
-                                    <span className="material-symbols-outlined text-[20px]">download</span>
-                                    Export CSV
-                                </button>
+                                <Button variant="ghost" icon="download" className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg text-sm font-bold transition-all border border-slate-200 dark:border-slate-700 shadow-sm">
+                                    {L.EXPORT}
+                                </Button>
                             </div>
                             {/* Sophisticated Filter Bar */}
                             <div className="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex flex-wrap items-center gap-4 shadow-sm">
                                 <div className="flex-1 min-w-[200px]">
-                                    <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1 ml-1">Search User</label>
+                                    <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1 ml-1">{L.SEARCH}</label>
                                     <div className="relative">
                                         <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-[18px]">person</span>
                                         <input className="w-full bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-4 text-xs focus:ring-primary focus:border-primary" placeholder="Filter by admin..." type="text" />
@@ -125,7 +126,7 @@ const ActivityLogs = () => {
                                         <input className="w-full bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-4 text-xs focus:ring-primary focus:border-primary cursor-pointer" type="text" defaultValue="Oct 20, 2023 - Oct 27, 2023" />
                                     </div>
                                 </div>
-                                <button className="mt-5 bg-primary text-background-dark px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider hover:opacity-90 transition-opacity">Apply</button>
+                                <Button variant="primary" className="mt-5">{L.SUBMIT}</Button>
                             </div>
                             {/* Table Container */}
                             <div className="bg-white/10 dark:bg-slate-800/20 border border-slate-200/50 dark:border-slate-800/50 rounded-xl shadow-xl backdrop-blur-sm overflow-hidden flex flex-col">
@@ -152,7 +153,7 @@ const ActivityLogs = () => {
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAB3OyloNU35sM5yYM-tLn0bikfGlYVV_0QETDlAZ3zOQqIIf5ARoipJ1pCwaM_dU4wnLm-hRyQxuWK-YG_WQcZ3SvfEmTNIreaHWNCeFosG6hLH64n8iEWuA74-vdpPL3GXS6_P2iB2e68MyaogYQkIiu21pX8-YxJBUptFiNMKApkX5n4rVyP93-C17gIoQxMjHMLSuBnev3NdvrcAjsYhLXbtLBIO-G_MW5i3cRKU5sKnkh2succJWRjtYThsAm9lHCAXDW0CbxO')" }}></div>
+                                                        <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=ActivityLogs')" }}></div>
                                                         <span className="text-sm font-medium">Alex Smith</span>
                                                     </div>
                                                 </td>
@@ -169,9 +170,7 @@ const ActivityLogs = () => {
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400">HIGH</span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right whitespace-nowrap">
-                                                    <button className="p-1 hover:text-primary transition-colors text-slate-400">
-                                                        <span className="material-symbols-outlined text-[20px]">more_vert</span>
-                                                    </button>
+                                                    <Button variant="icon" icon="more_vert" />
                                                 </td>
                                             </tr>
                                             {/* Row 2 */}
@@ -203,9 +202,7 @@ const ActivityLogs = () => {
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400">INFO</span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right whitespace-nowrap">
-                                                    <button className="p-1 hover:text-primary transition-colors text-slate-400">
-                                                        <span className="material-symbols-outlined text-[20px]">more_vert</span>
-                                                    </button>
+                                                    <Button variant="icon" icon="more_vert" />
                                                 </td>
                                             </tr>
                                             {/* Row 3 */}
@@ -218,7 +215,7 @@ const ActivityLogs = () => {
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuDovEPTo8pCmrTgS9G2YikRcoz0_kseV-KWLx8c6O45IYYqap6OkwC233xCi7_WKj_biX16pUaC9yQIxNqTDpJpwMkMIjqErXWy6tuJeRD17zfZKlLmxiC9mfyDNNGa5bMTSy6N95reHODE2vo9q3hVy-5-Zm3W-nx-ENWDnbmC1oAJJNJXYZyXlt7NJPVtxGdg8I9pHohfOPXPMsHjtnma5mmfUIC3muOJql68eYmubhljdriLQl3AI1Gh-ncaeByjXu3tWrDcxE1r')" }}></div>
+                                                        <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=ActivityLogs')" }}></div>
                                                         <span className="text-sm font-medium">Maria Garcia</span>
                                                     </div>
                                                 </td>
@@ -235,9 +232,7 @@ const ActivityLogs = () => {
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">MEDIUM</span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right whitespace-nowrap">
-                                                    <button className="p-1 hover:text-primary transition-colors text-slate-400">
-                                                        <span className="material-symbols-outlined text-[20px]">more_vert</span>
-                                                    </button>
+                                                    <Button variant="icon" icon="more_vert" />
                                                 </td>
                                             </tr>
                                             {/* Row 4 */}
@@ -269,9 +264,7 @@ const ActivityLogs = () => {
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400">INFO</span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right whitespace-nowrap">
-                                                    <button className="p-1 hover:text-primary transition-colors text-slate-400">
-                                                        <span className="material-symbols-outlined text-[20px]">more_vert</span>
-                                                    </button>
+                                                    <Button variant="icon" icon="more_vert" />
                                                 </td>
                                             </tr>
                                         </tbody>
@@ -281,17 +274,13 @@ const ActivityLogs = () => {
                                 <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
                                     <span className="text-xs text-slate-500">Showing <span className="font-bold text-slate-900 dark:text-slate-100">1-10</span> of <span className="font-bold text-slate-900 dark:text-slate-100">1,284</span> entries</span>
                                     <div className="flex items-center gap-2">
-                                        <button className="w-8 h-8 flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 disabled:opacity-30 text-slate-500" disabled>
-                                            <span className="material-symbols-outlined text-[18px]">chevron_left</span>
-                                        </button>
-                                        <button className="w-8 h-8 flex items-center justify-center rounded bg-primary text-background-dark text-xs font-bold">1</button>
-                                        <button className="w-8 h-8 flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs">2</button>
-                                        <button className="w-8 h-8 flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs">3</button>
+                                        <Button variant="ghost" icon="chevron_left" disabled className="w-8 h-8 border border-slate-200 dark:border-slate-700 disabled:opacity-30" />
+                                        <Button variant="primary" size="sm" className="w-8 h-8">1</Button>
+                                        <Button variant="ghost" size="sm" className="w-8 h-8 border border-slate-200 dark:border-slate-700">2</Button>
+                                        <Button variant="ghost" size="sm" className="w-8 h-8 border border-slate-200 dark:border-slate-700">3</Button>
                                         <span className="px-1">...</span>
-                                        <button className="w-8 h-8 flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs">128</button>
-                                        <button className="w-8 h-8 flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500">
-                                            <span className="material-symbols-outlined text-[18px]">chevron_right</span>
-                                        </button>
+                                        <Button variant="ghost" size="sm" className="w-8 h-8 border border-slate-200 dark:border-slate-700">128</Button>
+                                        <Button variant="ghost" icon="chevron_right" className="w-8 h-8 border border-slate-200 dark:border-slate-700" />
                                     </div>
                                 </div>
                             </div>
@@ -303,9 +292,7 @@ const ActivityLogs = () => {
                                     <span className="material-symbols-outlined text-primary text-[20px]">info</span>
                                     <h3 className="font-bold text-sm uppercase tracking-tight">Event Details</h3>
                                 </div>
-                                <button className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors">
-                                    <span className="material-symbols-outlined text-[18px]">close</span>
-                                </button>
+                                <Button variant="icon" icon="close" />
                             </div>
                             <div className="flex-1 overflow-y-auto p-5 space-y-6">
                                 {/* Event Summary Card */}
@@ -331,7 +318,7 @@ const ActivityLogs = () => {
                                         </div>
                                         <div>
                                             <p className="text-[10px] text-slate-500 uppercase">Region</p>
-                                            <p className="text-xs font-medium">London, UK (HQ)</p>
+                                            <p className="text-xs font-medium">Global HQ</p>
                                         </div>
                                         <div>
                                             <p className="text-[10px] text-slate-500 uppercase">Source</p>
@@ -376,8 +363,8 @@ const ActivityLogs = () => {
                                 </div>
                             </div>
                             <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex gap-2">
-                                <button className="flex-1 bg-primary text-background-dark py-2 rounded-lg text-xs font-bold uppercase tracking-wider hover:brightness-110 transition-all">Download Log</button>
-                                <button className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 py-2 rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">Rollback</button>
+                                <Button variant="primary" className="flex-1">{L.DOWNLOAD}</Button>
+                                <Button variant="ghost" className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700">Rollback</Button>
                             </div>
                         </aside>
                     </div>

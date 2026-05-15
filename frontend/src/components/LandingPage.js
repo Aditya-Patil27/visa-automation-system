@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
+import Button from './ui/Button';
+import { L } from '../config/labels';
 
 const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
+  const [showDemo, setShowDemo] = useState(false);
+
   return (
     <div className="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 selection:bg-primary/30">
       <div className="relative min-h-screen overflow-x-hidden">
@@ -21,10 +25,8 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
               <a className="text-sm font-medium text-slate-400 hover:text-primary transition-colors" href="#pricing">Pricing</a>
             </div>
             <div className="flex items-center gap-4">
-              <button onClick={onLoginClick} className="px-5 py-2 text-sm font-semibold text-slate-300 hover:text-white transition-colors">Log In</button>
-              <button onClick={onGetStartedClick} className="px-6 py-2.5 bg-primary text-background-dark text-sm font-bold rounded-lg hover:brightness-110 transition-all shadow-lg shadow-primary/20">
-                Get Started
-              </button>
+              <Button variant="ghost" onClick={onLoginClick}>{L.LOGIN}</Button>
+              <Button onClick={onGetStartedClick}>{L.SIGNUP}</Button>
             </div>
           </div>
         </nav>
@@ -47,21 +49,16 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
                 AI-powered visa eligibility, document automation, and embassy tracking for the modern traveler. Skip the paperwork, embrace the adventure.
               </p>
               <div className="flex flex-wrap gap-4 pt-4">
-                <button onClick={onGetStartedClick} className="px-8 py-4 bg-primary text-background-dark font-bold rounded-xl hover:scale-105 transition-transform shadow-xl shadow-primary/25">
-                  Start Assessment
-                </button>
-                <button className="glass px-8 py-4 text-white font-bold rounded-xl hover:bg-white/10 transition-all flex items-center gap-2">
-                  <span className="material-symbols-outlined">play_circle</span>
-                  Watch Demo
-                </button>
+                <Button size="lg" onClick={onGetStartedClick}>{L.START_ASSESSMENT}</Button>
+                <Button variant="secondary" size="lg" icon="play_circle" onClick={() => setShowDemo(true)}>{L.WATCH_DEMO}</Button>
               </div>
               <div className="pt-10 space-y-4">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-[0.2em]">Trusted by 50,000+ Travelers</p>
                 <div className="flex -space-x-3">
-                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait smiling digital nomad" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCeN3NRhc_cCxD6zVJRp--UesQdG2FAgdve4OPoJvOX00Hf6Ayo7VUH1ZzNkrQ-9qwRsBHigyph3clKbLJw3y44SQ2hD1D4n2mPnx8U706a2-dqehyCLoZ7F3sHGThgmNdJ-VGTHnI7Wml77FbBoGLXAA3KGkav4_cny-ZFmdEp9zJ_xK3c8oqjuqz66CzuB223wQ3-X0bwP7VO7wR4GbGIa3wwbTOdSD0afbacdBj5x8RAcwjfyrPSq0Js0jTfV8UuHuYLjehNxQlw" />
-                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait professional business traveler" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAdXl61DeyaPU1RjS2_jLSqYje5a9tuo3HN4r4AzjUIn09Yu9LgLIsAsCyKY_S6ZGxJVOD0FEqMy83Ou55sf6GJBHt4M_i5hpc7YcqJiWlOrWT88zq1wJcOGoZyTYwizIV4qZ1VQU17WigwfXiApBfaUmU-QmjYsOlBm3aSsUviIsCvJlWanpB5NFC2_bZzoGkuLYdWl6DfxISD_QVEaCV83SNf7oK7cWlV6rv597S8zukXKgVE1Zge7RLhEb9Hmqv07aZNPxohcsgj" />
-                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait happy world traveler" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBFrkYJAz0YkGug02Zv02hp9IGxv_1SWOLFUuTlMsqS8wIx7JqIIR9PaNZB1B4wkTDroCR8ixTJ7dSykWILJHampaHArNRGGHjb4dtgVB_tNR0mGRESp_6EilNTQwKZarMywhnvjiIugLkhAc2SblSepB2GfKYO2_pe1y6oDLjfuPdT-r8Z7Fkkg9Rxo8yw50jQHli92VdwZ0Wul-OOez2zarK7m2pz8Heb3eXUTKwWmDVkqSpBHWPQYVd4-_QxiV1ZM_t0MvXfPhdP" />
-                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait young male traveler" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAzItVoeyL8FWQcDiIXWwsVBk-q4kc06RIDMqcXF7bKmVzaNDpholFm5EFJvYS47sQ9aGg3osZydDECySzaEFsNAzB5QqVsJdwzKjJYDK6iwSf-D4-WkUskKysOmVfGuGKC5W9MMn501Pzte7ZS5aunxM8afKLlRjkQkjMJKG8F2DV0GAx8fSzXFswYyPvVMg-2S_6eik9WKPeCL5EiowiFTPRHEDJgaHlIFAK8-wOZJTSYPKSi9gSs6dZG1YRiGZ7zXwhiY0ZuizaX" />
+                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait" src="https://randomuser.me/api/portraits/women/44.jpg" />
+                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait" src="https://randomuser.me/api/portraits/men/32.jpg" />
+                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait" src="https://randomuser.me/api/portraits/women/68.jpg" />
+                  <img className="w-12 h-12 rounded-full border-4 border-background-dark object-cover" alt="User portrait" src="https://randomuser.me/api/portraits/men/75.jpg" />
                   <div className="w-12 h-12 rounded-full border-4 border-background-dark bg-slate-800 flex items-center justify-center text-xs font-bold text-white">+12k</div>
                 </div>
               </div>
@@ -69,7 +66,7 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
             <div className="relative">
               <div className="absolute -inset-4 bg-gradient-to-r from-primary to-secondary opacity-20 blur-3xl rounded-full"></div>
               <div className="relative glass rounded-3xl p-4 glow-accent">
-                <img className="rounded-2xl w-full h-[500px] object-cover opacity-80 mix-blend-luminosity" alt="Airplane window view" src="https://lh3.googleusercontent.com/aida-public/AB6AXuARL1R5N7tNlRyoEmxsbmiKP-C9fqlo5IjBBFbg6ydgxPEbZTT3LUbKS0uQ30JJV5evCQzNTqrHR2T8bP9CZCxpVDqEBeBGeJc2g9Nt-FAXxjrZSc-Wt304Ak3bxTbzH5T_f3jdx2b4aoW9YMBUm2jumxCNr_ssHjhkN1tMrxlhXA-nMdekDguCaZr6uxvlvL9KHPu5aoX9pRUPjGAOH65bSwjyafpy4Cs8r-MD_u7oEbmCNf-50YMCVKqul8ZfYCZwiGxWxyZXi69O" />
+                <img className="rounded-2xl w-full h-[500px] object-cover" alt="Airplane window view" src="https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&h=500&fit=crop&q=80" />
                 <div className="absolute inset-0 bg-gradient-to-t from-background-dark via-transparent to-transparent rounded-2xl"></div>
                 <div className="absolute bottom-10 left-10 right-10 glass p-6 rounded-2xl border border-white/20">
                   <div className="flex items-center justify-between mb-4">
@@ -105,9 +102,7 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
                   <p className="text-slate-400 leading-relaxed mb-6">
                     Instant answers to complex visa questions. Our AI is trained on thousands of embassy regulations worldwide.
                   </p>
-                  <a className="mt-auto flex items-center gap-2 text-primary font-bold text-sm hover:gap-4 transition-all" href="#features">
-                    Explore Feature <span className="material-symbols-outlined">arrow_forward</span>
-                  </a>
+                  <Button variant="ghost" href="#features" icon="arrow_forward" className="mt-auto">{L.EXPLORE_FEATURE}</Button>
                 </div>
               </div>
               <div className="gradient-border group">
@@ -119,9 +114,7 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
                   <p className="text-slate-400 leading-relaxed mb-6">
                     Extract data from passports and IDs with 99.9% accuracy. Auto-fills your application forms in seconds.
                   </p>
-                  <a className="mt-auto flex items-center gap-2 text-secondary font-bold text-sm hover:gap-4 transition-all" href="#features">
-                    Explore Feature <span className="material-symbols-outlined">arrow_forward</span>
-                  </a>
+                  <Button variant="ghost" href="#features" icon="arrow_forward" className="mt-auto">{L.EXPLORE_FEATURE}</Button>
                 </div>
               </div>
               <div className="gradient-border group">
@@ -133,9 +126,7 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
                   <p className="text-slate-400 leading-relaxed mb-6">
                     Live updates on your application status directly from embassy sources. Never miss a notification again.
                   </p>
-                  <a className="mt-auto flex items-center gap-2 text-primary font-bold text-sm hover:gap-4 transition-all" href="#features">
-                    Explore Feature <span className="material-symbols-outlined">arrow_forward</span>
-                  </a>
+                  <Button variant="ghost" href="#features" icon="arrow_forward" className="mt-auto">{L.EXPLORE_FEATURE}</Button>
                 </div>
               </div>
             </div>
@@ -177,12 +168,8 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
                 Join thousands of travelers who have streamlined their global mobility with VisaFlow AI.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-                <button className="w-full sm:w-auto px-10 py-5 bg-white text-background-dark font-black rounded-2xl hover:bg-primary transition-all shadow-2xl">
-                  Get Early Access
-                </button>
-                <button className="w-full sm:w-auto px-10 py-5 glass text-white font-bold rounded-2xl hover:bg-white/10 transition-all">
-                  Talk to Sales
-                </button>
+                <Button variant="primary" size="lg" onClick={onGetStartedClick} className="bg-white !text-background-dark hover:!bg-primary !shadow-2xl">{L.GET_EARLY_ACCESS}</Button>
+                <Button variant="secondary" size="lg" onClick={() => window.location.href = 'mailto:support@visaflow.ai?subject=Sales%20Inquiry'}>{L.TALK_TO_SALES}</Button>
               </div>
             </div>
           </div>
@@ -236,7 +223,7 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
               </div>
             </div>
             <div className="pt-8 border-t border-slate-200/5 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-600">
-              <p>© 2024 VisaFlow AI Inc. All rights reserved.</p>
+              <p>&copy; 2024 VisaFlow AI Inc. All rights reserved.</p>
               <div className="flex gap-8">
                 <a className="hover:text-slate-400" href="/">Security</a>
                 <a className="hover:text-slate-400" href="/">Status</a>
@@ -246,6 +233,34 @@ const LandingPage = ({ onLoginClick, onGetStartedClick }) => {
           </div>
         </footer>
       </div>
+
+      {/* Demo Video Modal */}
+      {showDemo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowDemo(false)}>
+          <div className="relative w-full max-w-4xl mx-4 bg-background-dark rounded-3xl border border-primary/20 overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-primary/10">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">play_circle</span>
+                <h3 className="text-lg font-bold text-white">VisaFlow AI Demo</h3>
+              </div>
+              <Button variant="icon" icon="close" onClick={() => setShowDemo(false)} />
+            </div>
+            <div className="p-6">
+              <video
+                className="w-full rounded-xl border border-primary/10"
+                controls
+                autoPlay
+                src="/demo-video.webm"
+                poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='360' fill='%231e293b'%3E%3Crect width='640' height='360'/%3E%3Ctext x='50%25' y='50%25' fill='%2364748b' text-anchor='middle' dy='.1em' font-family='sans-serif' font-size='20'%3EVisaFlow AI Demo%3C/text%3E%3C/svg%3E"
+              >
+                <source src="/demo-video.webm" type="video/webm" />
+                Your browser does not support the video tag.
+              </video>
+              <p className="text-center text-xs text-slate-500 mt-4">Watch how VisaFlow AI streamlines your entire visa application process.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

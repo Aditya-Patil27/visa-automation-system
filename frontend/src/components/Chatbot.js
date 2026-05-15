@@ -1,26 +1,21 @@
 import React, { useState } from 'react';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
 
 function Chatbot({ token }) {
   const [history, setHistory] = useState([]);
   const [question, setQuestion] = useState('');
 
   const sendQuestion = async () => {
-    const res = await fetch('http://localhost:8000/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ question }),
-    });
-    const data = await res.json();
+    const data = await api.post('/chat', { question });
     setHistory([...history, { question, answer: data.answer }]);
     setQuestion('');
   };
 
   return (
     <div style={{ marginTop: '2rem' }}>
-      <h2>Chatbot</h2>
+      <h2>{L.CHATBOT}</h2>
       <div>
         {history.map((turn, idx) => (
           <div key={idx} style={{ marginBottom: '1rem' }}>
@@ -32,7 +27,7 @@ function Chatbot({ token }) {
       </div>
       <div>
         <input value={question} onChange={(e) => setQuestion(e.target.value)} style={{ width: '60%' }} />
-        <button onClick={sendQuestion}>Send</button>
+        <Button onClick={sendQuestion}>{L.SEND}</Button>
       </div>
     </div>
   );

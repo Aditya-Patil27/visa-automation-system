@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import Button from './ui/Button';
+import { GoogleLogin } from '@react-oauth/google';
+
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const AuthPage = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -7,59 +12,61 @@ const AuthPage = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       if (isLogin) {
-        // Login Request
-        const res = await fetch('http://localhost:8000/login', {
+        const token = localStorage.getItem('access_token');
+        const base = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${base}/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: `username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`,
         });
-
         const data = await res.json();
-        
-        if (!res.ok) {
-           throw new Error(data.detail || 'Login failed');
-        }
-
+        if (!res.ok) throw data;
         if (data.access_token) {
           const payload = JSON.parse(atob(data.access_token.split('.')[1]));
           onLogin(data.access_token, payload.role);
-          if (payload.role === 'admin') {
-            navigate('/admin-dashboard-overview');
-          } else {
-            navigate('/user-dashboard');
-          }
+          window.location.href = payload.role === 'admin' ? ROUTES.ADMIN_DASHBOARD : ROUTES.USER_DASHBOARD;
         }
       } else {
-        // Register Request
-        const res = await fetch('http://localhost:8000/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, password: password }),
-        });
-
-        const data = await res.json();
-        
-        if (!res.ok) {
-           throw new Error(data.detail || 'Registration failed');
-        }
-
+        const data = await api.post('/register', { email, password });
         if (data.access_token) {
           const payload = JSON.parse(atob(data.access_token.split('.')[1]));
           onLogin(data.access_token, payload.role);
-          navigate('/user-dashboard'); // New users default to user dashboard
+          window.location.href = ROUTES.USER_DASHBOARD;
         }
       }
     } catch (err) {
-      setError(err.message);
+      setError(err.detail || err.message || 'Request failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setError('');
+    setLoading(true);
+    try {
+      const base = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${base}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: credentialResponse.credential }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw data;
+      if (data.access_token) {
+        const payload = JSON.parse(atob(data.access_token.split('.')[1]));
+        onLogin(data.access_token, payload.role);
+        window.location.href = payload.role === 'admin' ? ROUTES.ADMIN_DASHBOARD : ROUTES.USER_DASHBOARD;
+      }
+    } catch (err) {
+      setError(err.detail || err.message || 'Google Login failed');
     } finally {
       setLoading(false);
     }
@@ -122,34 +129,38 @@ const AuthPage = ({ onLogin }) => {
                         </div>
                     </div>
 
-                    <button 
-                        type="submit" 
-                        disabled={loading}
-                        className="w-full py-4 rounded-xl font-bold text-background-dark bg-primary hover:bg-primary/90 flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(13,204,242,0.2)] hover:shadow-[0_0_30px_rgba(13,204,242,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {loading ? (
-                            <span className="material-symbols-outlined animate-spin">refresh</span>
-                        ) : (
-                            <>
-                                {isLogin ? 'Sign In' : 'Sign Up'}
-                                <span className="material-symbols-outlined text-lg mt-0.5">arrow_forward</span>
-                            </>
-                        )}
-                    </button>
+                    <Button type="submit" disabled={loading} size="lg" className="w-full" icon={loading ? 'refresh' : 'arrow_forward'}>
+                        {loading ? '' : isLogin ? L.SIGN_IN : L.SIGNUP}
+                    </Button>
+
+                    <div className="relative my-8">
+                        <div className="absolute inset-0 flex items-center">
+                            <span className="w-full border-t border-slate-800"></span>
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-slate-900 px-4 text-slate-500 font-medium tracking-widest">Or continue with</span>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-center w-full">
+                        <GoogleLogin
+                            onSuccess={handleGoogleSuccess}
+                            onError={() => setError('Google Login Failed')}
+                            useOneTap
+                            theme="filled_black"
+                            shape="pill"
+                            width="100%"
+                        />
+                    </div>
+
                 </form>
 
                 {/* Footer toggle */}
                 <div className="mt-8 text-center">
-                    <button 
-                        onClick={() => setIsLogin(!isLogin)}
-                        className="text-sm text-slate-400 hover:text-white transition-colors"
-                        type="button"
-                    >
+                    <Button variant="ghost" size="md" onClick={() => setIsLogin(!isLogin)}>
                         {isLogin ? "Don't have an account? " : "Already have an account? "}
-                        <span className="text-primary font-bold hover:underline">
-                            {isLogin ? 'Register' : 'Log In'}
-                        </span>
-                    </button>
+                        <span className="text-primary font-bold">{isLogin ? L.REGISTER : L.LOGIN}</span>
+                    </Button>
                 </div>
             </div>
             

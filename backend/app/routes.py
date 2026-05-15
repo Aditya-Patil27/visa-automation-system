@@ -1,788 +1,735 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.responses import Response
-from typing import List, Optional
+"""API routes — all MongoDB-backed."""
+import json, io, re, base64, os, time, asyncio, logging, random
+from collections import defaultdict
 from datetime import datetime
+from bson.objectid import ObjectId
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel
+try:
+    from slowapi import Limiter
+    from slowapi.util import get_remote_address
+except ImportError:
+    class Limiter:
+        def __init__(self, *args, **kwargs): pass
+    def get_remote_address(request): return "unknown"
 
-from .database import get_database
-from .models import UserCreate, Token, VisaRequirement, VisaDB
-from .security import (
-    verify_password,
-    get_password_hash,
-    create_access_token,
-    decode_access_token,
+from .route_modules import router as auth_sub_router
+from .database import get_database, doc_to_id
+from .models import (
+    UserCreate, Token, VisaRequirement, VisaDB,
+    COLL_USERS, COLL_VISAS, COLL_ASSESSMENTS, COLL_APPOINTMENTS,
+    COLL_USER_DOCUMENTS, COLL_DOCUMENT_STATUS, COLL_PROGRESS,
+    COLL_WORKFLOW, COLL_QUERIES, COLL_QUERY_RESPONSES,
+    COLL_NOTIFICATIONS, COLL_NOTIFICATION_PREFS, COLL_RESET_TOKENS,
+    COLL_SCRAPER_LOGS, visa_to_db, doc_to_visa,
 )
-from .cache import (
-    get_cache,
-    cache_rag_result,
-    get_cached_rag_result,
-    cache_visa_requirements,
-    get_cached_visa_requirements,
-    cache_user_session,
-    get_cached_user_session,
-    get_cache_stats,
+from .schemas import (
+    AssessmentStep, AppointmentCreate, DocumentReview,
 )
+from .security import verify_password, get_password_hash, create_access_token, decode_access_token
+from .cache import get_cache, cache_rag_result, get_cached_rag_result, cache_visa_requirements, get_cached_visa_requirements, cache_user_session, get_cached_user_session, get_cache_stats
+from .document_config import DOC_TYPE_MAP, DOC_TYPE_DESC
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
+# ── Auth dependencies ────────────────────────────────────────────────
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
     if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Invalid authentication credentials")
+        token = request.cookies.get("access_token")
+        if token:
+            payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
     return payload
-
 
 def get_current_admin(user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="Admin privileges required")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
     return user
 
+router.include_router(auth_sub_router)
 
-@router.post("/register", response_model=Token)
-async def register(user: UserCreate):
-    db = get_database()
-    existing = await db.users.find_one({"email": user.email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    hashed = get_password_hash(user.password)
-    user_dict = user.dict()
-    user_dict["hashed_password"] = hashed
-    del user_dict["password"]
-    await db.users.insert_one(user_dict)
-    token = create_access_token({"sub": user.email, "role": user.role})
-    return {"access_token": token}
+# ── Helpers ──────────────────────────────────────────────────────────
 
+def obid(id_str: str) -> ObjectId:
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid ID: {id_str}")
 
-@router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    db = get_database()
-    user = await db.users.find_one({"email": form_data.username})
-    if not user or not verify_password(form_data.password, user.get("hashed_password")):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    token = create_access_token({"sub": user["email"], "role": user.get("role")})
-    return {"access_token": token}
+# ── Visa CRUD ────────────────────────────────────────────────────────
 
-
-# visa endpoints with caching
 @router.get("/visa", response_model=List[VisaDB])
-async def list_visas(_: dict = Depends(get_current_user), response: Response = None):
+async def list_visas(limit: int = 50, offset: int = 0, _: dict = Depends(get_current_user)):
     db = get_database()
-    cache = await get_cache()
-
-    # Try cache first
-    cached = await cache.get_json("visa:all:list")
-    if cached:
-        if response:
-            response.headers["X-Cache-Hit"] = "true"
-            response.headers["X-Cache-TTL"] = "600"
-        return cached
-
-    items = []
-    cursor = db.visas.find()
-    async for doc in cursor:
-        doc["_id"] = str(doc["_id"])
-        items.append(doc)
-
-    # Cache the result
-    await cache.set_json("visa:all:list", items, ttl=600)
-
-    if response:
-        response.headers["X-Cache-Hit"] = "false"
-        response.headers["X-Cache-TTL"] = "600"
-
-    return items
-
+    cursor = db[COLL_VISAS].find().skip(offset).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    return [doc_to_visa(d) for d in docs]
 
 @router.post("/visa", response_model=VisaDB)
 async def create_visa(visa: VisaRequirement, _: dict = Depends(get_current_admin)):
     db = get_database()
-    res = await db.visas.insert_one(visa.dict())
-    visa_doc = visa.dict()
-    visa_doc["_id"] = str(res.inserted_id)
-
-    # Invalidate visa list cache
-    cache = await get_cache()
-    await cache.delete("visa:all:list")
-
-    return visa_doc
-
+    result = await db[COLL_VISAS].insert_one(visa_to_db(visa))
+    doc = await db[COLL_VISAS].find_one({"_id": result.inserted_id})
+    return doc_to_visa(doc)
 
 @router.put("/visa/{id}", response_model=VisaDB)
 async def update_visa(id: str, visa: VisaRequirement, _: dict = Depends(get_current_admin)):
     db = get_database()
-    await db.visas.update_one({"_id": id}, {"$set": visa.dict()})
-    visa_doc = visa.dict()
-    visa_doc["_id"] = id
-    return visa_doc
-
+    result = await db[COLL_VISAS].update_one({"_id": obid(id)}, {"$set": visa_to_db(visa)})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Visa not found")
+    doc = await db[COLL_VISAS].find_one({"_id": obid(id)})
+    return doc_to_visa(doc)
 
 @router.delete("/visa/{id}")
 async def delete_visa(id: str, _: dict = Depends(get_current_admin)):
     db = get_database()
-    await db.visas.delete_one({"_id": id})
+    result = await db[COLL_VISAS].delete_one({"_id": obid(id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Visa not found")
     return {"detail": "deleted"}
 
+# ── Chat ─────────────────────────────────────────────────────────────
 
-# chat endpoint with caching
+_chat_rate_limit = 10
+_chat_store: dict = defaultdict(list)
+
+def _check_chat_rate_limit(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    _chat_store[ip] = [t for t in _chat_store[ip] if t > now - 60]
+    if len(_chat_store[ip]) >= _chat_rate_limit:
+        raise HTTPException(status_code=429, detail="Chat rate limit exceeded")
+    _chat_store[ip].append(now)
+
 @router.post("/chat")
-async def chat_endpoint(query: dict, user: dict = Depends(get_current_user), response: Response = None):
-    from .rag import handle_query
-
+async def chat_endpoint(request: Request, query: dict, user: dict = Depends(get_current_user)):
+    _check_chat_rate_limit(request)
+    from .rag import get_rag_service
     text = query.get("question")
     if not text:
         raise HTTPException(status_code=400, detail="No question provided")
+    session_id = user.get("sub", "")
+    try:
+        answer = await asyncio.wait_for(get_rag_service().invoke(text, session_id=session_id), timeout=30.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Chat service timed out")
+    return {"answer": answer}
 
-    # Check cache first
-    cached_result = await get_cached_rag_result(text)
-    if cached_result:
-        if response:
-            response.headers["X-Cache-Hit"] = "true"
-            response.headers["X-Cache-TTL"] = "3600"
-        return {"answer": cached_result, "cached": True}
+@router.post("/chat/stream")
+async def chat_stream(request: Request, query: dict, user: dict = Depends(get_current_user)):
+    _check_chat_rate_limit(request)
+    from .rag import get_rag_service
+    question = query.get("question")
+    if not question:
+        raise HTTPException(status_code=400, detail="No question provided")
+    session_id = user.get("sub", "")
+    async def event_generator():
+        try:
+            async for chunk in get_rag_service().stream(question, session_id):
+                yield chunk
+        except asyncio.TimeoutError:
+            yield f"data: {json.dumps({'error': 'Chat service timed out'})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error("Chat stream error: %s", e)
+            yield f"data: {json.dumps({'error': 'Chat service error'})}\n\n"
+            yield "data: [DONE]\n\n"
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"})
 
-    # Process query
-    answer = await handle_query(text)
+# ── Assessment CRUD ──────────────────────────────────────────────────
 
-    # Cache the result
-    await cache_rag_result(text, answer)
+@router.post("/assessment")
+async def create_assessment(user: dict = Depends(get_current_user)):
+    db = get_database()
+    doc = {"user_email": user.get("sub", ""), "status": "draft", "current_step": 1,
+           "form_data": json.dumps({}), "eligibility_score": None, "is_eligible": 0,
+           "result_details": "{}", "created_at": datetime.utcnow().isoformat()}
+    result = await db[COLL_ASSESSMENTS].insert_one(doc)
+    return {"id": str(result.inserted_id), "status": "draft", "current_step": 1}
 
-    if response:
-        response.headers["X-Cache-Hit"] = "false"
-        response.headers["X-Cache-TTL"] = "3600"
+@router.put("/assessment/{id}")
+async def update_assessment(id: str, step_data: AssessmentStep, user: dict = Depends(get_current_user)):
+    db = get_database()
+    doc = await db[COLL_ASSESSMENTS].find_one({"_id": obid(id), "user_email": user.get("sub", "")})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    existing = json.loads(doc.get("form_data", "{}"))
+    existing[str(step_data.step)] = step_data.data
+    await db[COLL_ASSESSMENTS].update_one({"_id": obid(id)},
+        {"$set": {"form_data": json.dumps(existing), "current_step": step_data.step}})
+    updated = await db[COLL_ASSESSMENTS].find_one({"_id": obid(id)})
+    return {"id": str(updated["_id"]), "status": updated["status"],
+            "current_step": updated["current_step"],
+            "form_data": json.loads(updated.get("form_data", "{}"))}
 
-    return {"answer": answer, "cached": False}
+@router.get("/assessment/{id}")
+async def get_assessment(id: str, user: dict = Depends(get_current_user)):
+    db = get_database()
+    doc = await db[COLL_ASSESSMENTS].find_one({"_id": obid(id), "user_email": user.get("sub", "")})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    return {"id": str(doc["_id"]), "status": doc["status"], "current_step": doc["current_step"],
+            "form_data": json.loads(doc.get("form_data", "{}")),
+            "eligibility_score": doc.get("eligibility_score"),
+            "is_eligible": bool(doc["is_eligible"]) if doc.get("is_eligible") is not None else None,
+            "result": json.loads(doc["result_details"]) if doc.get("result_details") and doc["result_details"] != "{}" else None,
+            "created_at": doc.get("created_at"), "updated_at": doc.get("updated_at")}
+
+@router.post("/assessment/{id}/submit")
+async def submit_assessment(id: str, user: dict = Depends(get_current_user)):
+    from .eligibility import assess_eligibility
+    REQUIRED_STEPS = {1, 2, 3}
+    db = get_database()
+    doc = await db[COLL_ASSESSMENTS].find_one({"_id": obid(id), "user_email": user.get("sub", "")})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if doc.get("status") in ("submitted", "completed"):
+        return {"id": str(doc["_id"]), "status": doc["status"],
+                "eligibility_score": doc.get("eligibility_score"),
+                "is_eligible": bool(doc["is_eligible"]) if doc.get("is_eligible") is not None else None,
+                "result": json.loads(doc.get("result_details", "{}"))}
+    form_data = json.loads(doc.get("form_data", "{}"))
+    completed_steps = {int(k) for k in form_data.keys() if k.isdigit()}
+    missing_steps = REQUIRED_STEPS - completed_steps
+    if missing_steps:
+        raise HTTPException(status_code=400, detail=f"Cannot submit: steps {missing_steps} are incomplete")
+    all_steps_data = {}
+    for step_key, step_val in form_data.items():
+        if isinstance(step_val, dict):
+            all_steps_data.update(step_val)
+    destination = all_steps_data.get("destination_country", "")
+    purpose = all_steps_data.get("purpose", "")
+    visa_doc = await db[COLL_VISAS].find_one({"country": {"$regex": f"^{destination}$", "$options": "i"}})
+    if not visa_doc:
+        return {"id": str(doc["_id"]), "status": "submitted", "eligibility_score": 0,
+                "is_eligible": False, "result": {"overall_eligible": False, "score": 0,
+                    "matched_requirements": [], "missing_requirements": ["No visa record found"],
+                    "actionable_feedback": ["No visa data for this destination."]}}
+    assessment_data = {"age": int(all_steps_data.get("age", 25) or 25),
+        "bank_balance": float(all_steps_data.get("bank_balance", 0) or 0),
+        "purpose": purpose, "passport_number": all_steps_data.get("passport_number", ""),
+        "destination_country": destination, "nationality": all_steps_data.get("nationality", ""),
+        "intended_stay_days": int(all_steps_data.get("intended_stay_days", 0) or 0)}
+    try:
+        eligibility_result = await asyncio.wait_for(assess_eligibility(assessment_data, visa_doc), timeout=30.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Eligibility assessment timed out")
+    except Exception as e:
+        logger.error("Eligibility assessment failed: %s", e)
+        raise HTTPException(status_code=502, detail="Eligibility engine unavailable")
+    await db[COLL_ASSESSMENTS].update_one({"_id": obid(id)},
+        {"$set": {"status": "submitted", "eligibility_score": eligibility_result.get("score", 0),
+                  "is_eligible": 1 if eligibility_result.get("overall_eligible") else 0,
+                  "result_details": json.dumps(eligibility_result)}})
+    return {"id": str(doc["_id"]), "status": "submitted",
+            "eligibility_score": eligibility_result.get("score", 0),
+            "is_eligible": eligibility_result.get("overall_eligible", False),
+            "result": eligibility_result}
+
+# ── Semantic Search ──────────────────────────────────────────────────
+
+@router.post("/search")
+async def search_endpoint(query: dict, user: dict = Depends(get_current_user)):
+    from .rag import semantic_search
+    text = query.get("query")
+    k = query.get("k", 5)
+    if not text:
+        raise HTTPException(status_code=400, detail="No query provided")
+    return {"results": semantic_search(text, k=k)}
+
+# ── OCR ──────────────────────────────────────────────────────────────
+
+async def _run_ocr(file_bytes: bytes, content_type: str) -> str:
+    google_key = os.environ.get("GOOGLE_VISION_API_KEY", "")
+    if not google_key:
+        return _simulate_ocr(content_type)
+    import aiohttp
+    try:
+        b64_image = base64.standard_b64encode(file_bytes).decode("utf-8")
+        url = f"https://vision.googleapis.com/v1/images:annotate?key={google_key}"
+        payload = {"requests": [{"image": {"content": b64_image}, "features": [{"type": "TEXT_DETECTION"}]}]}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                result = await response.json()
+                if "error" in result:
+                    raise HTTPException(status_code=502, detail=f"OCR error: {result['error'].get('message', 'Unknown')}")
+                responses = result.get("responses", [])
+                if not responses or not responses[0].get("fullTextAnnotation"):
+                    raise HTTPException(status_code=400, detail="No text detected")
+                return responses[0]["fullTextAnnotation"]["text"]
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="OCR timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("OCR failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"OCR failed: {str(e)}")
 
 
-# ==================== Eligibility Assessment Endpoints ====================
+def _simulate_ocr(content_type: str) -> str:
+    fname = random.choice(["Rahul", "Priya", "Amit", "Neha", "Arjun", "Sneha", "Vikram", "Ananya"])
+    flast = random.choice(["Sharma", "Verma", "Patel", "Singh", "Kumar", "Reddy", "Mehta", "Joshi"])
+    pp = f"PP{random.randint(100000, 999999)}"
+    dob = f"{random.randint(1, 28):02d}/{random.randint(1, 12):02d}/{random.randint(1970, 2000)}"
+    exp = f"{random.randint(1, 28):02d}/{random.randint(1, 12):02d}/{random.randint(2027, 2032)}"
+    nationalities = ["INDIAN", "AMERICAN", "BRITISH", "CANADIAN", "AUSTRALIAN"]
+    return (
+        f"Name: {fname} {flast}\n"
+        f"Passport No: {pp}\n"
+        f"Date of Birth: {dob}\n"
+        f"Date of Expiry: {exp}\n"
+        f"Nationality: {random.choice(nationalities)}\n"
+        f"Document Type: {content_type}\n"
+        f"[SIMULATED OCR - No Google Vision API key configured]")
 
-class EligibilityContextInput(BaseModel):
-    travel_purpose: str
-    duration_days: int = None
-    country: str
-    nationality: str = None
-    has_passport: bool = True
-    has_prior_visa: bool = False
-    criminal_record: bool = False
-    has_ties: bool = True
+def _extract_fields(ocr_text: str) -> dict:
+    fields = {}
+    m = re.search(r"(?:Name|Surname|Given)[:\s]*([A-Za-z\s]+)", ocr_text, re.I)
+    if m: fields["full_name"] = m.group(1).strip()
+    m = re.search(r"(?:Passport\s*(?:No|Number)?)[:\s]*([A-Z0-9]{6,12})", ocr_text, re.I)
+    if m: fields["passport_number"] = m.group(1)
+    dates = re.findall(r"\b(\d{2}[/.-]\d{2}[/.-]\d{4})\b", ocr_text)
+    if dates: fields["dates_found"] = dates
+    m = re.search(r"(?:Nationality|Citizenship)[:\s]*([A-Za-z\s]+)", ocr_text, re.I)
+    if m: fields["nationality"] = m.group(1).strip()
+    return fields
 
+@router.post("/ocr")
+async def ocr_endpoint(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    file_bytes = await file.read()
+    ocr_text = await _run_ocr(file_bytes, file.content_type or "image/jpeg")
+    return {"filename": file.filename, "ocr_text": ocr_text, "extracted_fields": _extract_fields(ocr_text)}
 
-@router.post("/eligibility")
-async def check_eligibility(
-    context: EligibilityContextInput,
-    user: dict = Depends(get_current_user)
-):
-    """
-    Check visa eligibility based on user travel context.
-    Uses RAG-based knowledge base for country-specific requirements.
-    """
-    from .eligibility import assess_eligibility, save_eligibility_assessment, EligibilityContext
-    
-    # Convert input to EligibilityContext
-    eligibility_context = EligibilityContext(
-        travel_purpose=context.travel_purpose,
-        duration_days=context.duration_days,
-        country=context.country,
-        nationality=context.nationality,
-        has_passport=context.has_passport,
-        has_prior_visa=context.has_prior_visa,
-        criminal_record=context.criminal_record,
-        has_ties=context.has_ties
-    )
-    
-    # Assess eligibility
-    result = await assess_eligibility(eligibility_context)
-    
-    # Save assessment to database
-    user_email = user.get("sub", "")
-    await save_eligibility_assessment(user_email, eligibility_context, result)
-    
-    return {
-        "eligible": result.eligible,
-        "visa_type": result.visa_type,
-        "confidence": result.confidence,
-        "requirements_met": result.requirements_met,
-        "requirements_missing": result.requirements_missing,
-        "processing_time": result.processing_time,
-        "estimated_cost": result.estimated_cost,
-        "notes": result.notes,
-        "status": "Preliminary Eligibility Assessment Complete"
-    }
+# ── Document Management ──────────────────────────────────────────────
 
+MAX_FILE_SIZE = 20 * 1024 * 1024
 
-@router.get("/eligibility")
-async def get_eligibility_history(user: dict = Depends(get_current_user)):
-    """Get user's eligibility assessment history"""
-    from .eligibility import get_eligibility_status
-    
-    user_email = user.get("sub", "")
-    history = await get_eligibility_status(user_email)
-    
-    if not history:
-        return {"assessments": [], "message": "No previous eligibility assessments"}
-    
-    return {"assessments": [history]}
+@router.get("/documents/types")
+async def get_document_types(visa_type_id: str = None, user: dict = Depends(get_current_user)):
+    db = get_database()
+    if visa_type_id:
+        doc = await db[COLL_VISAS].find_one({"_id": obid(visa_type_id)})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Visa type not found")
+        doc_names = doc.get("documents", [])
+        visa_label = f"{doc['country']} {doc['visa_type']}"
+    else:
+        cursor = db[COLL_VISAS].find({}, {"documents": 1}).limit(200)
+        rows = await cursor.to_list(length=200)
+        seen = set()
+        doc_names = []
+        for r in rows:
+            for d in r.get("documents", []):
+                if d not in seen:
+                    seen.add(d)
+                    doc_names.append(d)
+        visa_label = "All Visas"
+    types = []
+    for name in doc_names:
+        key = name.lower().replace(" ", "_").replace("/", "_")
+        types.append({"name": key, "label": DOC_TYPE_MAP.get(key, name), "description": DOC_TYPE_DESC.get(key, ""), "required": True})
+    return {"visa_type_id": visa_type_id, "visa_label": visa_label, "document_types": types}
 
-# dashboard endpoints with caching
+@router.post("/documents/upload")
+async def upload_document(file: UploadFile = File(...), document_type: str = "other", user: dict = Depends(get_current_user)):
+    from .encryption import encrypt_data
+    email = user.get("sub", "")
+    db = get_database()
+
+    # Bypass user: skip real file processing, return mock data
+    user_doc = await db[COLL_USERS].find_one({"email": email})
+    if user_doc and user_doc.get("bypass"):
+        mock_ocr = (
+            f"Name: Demo User\nPassport No: BYPASS{random.randint(100000, 999999)}\n"
+            f"Date of Birth: 15/05/1995\nNationality: INDIAN\n"
+            f"[BYPASS MODE - Mock OCR data]"
+        )
+        mock_fields = {"full_name": "Demo User", "passport_number": f"BYPASS{random.randint(100000, 999999)}",
+                       "nationality": "INDIAN", "dates_found": ["15/05/1995"], "bypass_mode": True}
+        doc_entry = {"user_email": email, "filename": file.filename or "demo_document.pdf",
+                     "content_type": "application/pdf", "document_type": document_type,
+                     "status": "approved", "is_encrypted": 0, "encrypted_data": b"",
+                     "ocr_text": mock_ocr, "created_at": datetime.utcnow().isoformat()}
+        result = await db[COLL_USER_DOCUMENTS].insert_one(doc_entry)
+        await db[COLL_DOCUMENT_STATUS].update_one(
+            {"user_email": email, "document_type": document_type},
+            {"$set": {"filename": file.filename or "demo_document.pdf", "status": "approved",
+                      "reviewed_by": "system", "reviewed_at": datetime.utcnow().isoformat()}},
+            upsert=True)
+        return {"id": str(result.inserted_id), "filename": doc_entry["filename"],
+                "content_type": doc_entry["content_type"], "document_type": document_type,
+                "status": "approved", "is_encrypted": False, "ocr_text": mock_ocr,
+                "extracted_fields": mock_fields, "created_at": doc_entry["created_at"],
+                "bypass_mode": True, "message": "Demo mode — document auto-approved"}
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large. Max {MAX_FILE_SIZE // (1024*1024)}MB")
+    ALLOWED_MAGIC = {b'\x89PNG': 'image/png', b'\xff\xd8\xff': 'image/jpeg', b'%PDF': 'application/pdf'}
+    detected = None
+    for magic, mime in ALLOWED_MAGIC.items():
+        if file_bytes[:len(magic)] == magic:
+            detected = mime
+            break
+    if not detected:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, and PDF files are supported")
+    ocr_text = await _run_ocr(file_bytes, detected)
+    encrypted = encrypt_data(file_bytes)
+    doc = {"user_email": email, "filename": file.filename or "untitled",
+           "content_type": file.content_type or "application/octet-stream",
+           "document_type": document_type, "status": "uploaded", "is_encrypted": 1,
+           "encrypted_data": encrypted, "ocr_text": ocr_text, "created_at": datetime.utcnow().isoformat()}
+    result = await db[COLL_USER_DOCUMENTS].insert_one(doc)
+    await db[COLL_DOCUMENT_STATUS].update_one(
+        {"user_email": email, "document_type": document_type},
+        {"$set": {"filename": file.filename or "untitled", "status": "uploaded"}},
+        upsert=True)
+    return {"id": str(result.inserted_id), "filename": doc["filename"], "content_type": doc["content_type"],
+            "document_type": document_type, "status": "uploaded", "is_encrypted": True,
+            "ocr_text": ocr_text, "extracted_fields": _extract_fields(ocr_text),
+            "created_at": doc["created_at"]}
+
+@router.get("/documents/mydocs")
+async def get_my_documents(user: dict = Depends(get_current_user)):
+    db = get_database()
+    cursor = db[COLL_USER_DOCUMENTS].find({"user_email": user.get("sub", "")}).sort("created_at", -1)
+    docs = await cursor.to_list(length=200)
+    status_cursor = db[COLL_DOCUMENT_STATUS].find({"user_email": user.get("sub", "")})
+    status_list = await status_cursor.to_list(length=100)
+    status_map = {s["document_type"]: {"status": s.get("status"), "reviewed_by": s.get("reviewed_by"), "reviewer_notes": s.get("reviewer_notes")} for s in status_list}
+    return {"documents": [doc_to_id(d) for d in docs], "status_summary": status_map}
+
+@router.get("/documents/download/{doc_id}")
+async def download_document(doc_id: str, user: dict = Depends(get_current_user)):
+    from .encryption import decrypt_data
+    db = get_database()
+    doc = await db[COLL_USER_DOCUMENTS].find_one({"_id": obid(doc_id), "user_email": user.get("sub", "")})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    decrypted = decrypt_data(doc["encrypted_data"])
+    return StreamingResponse(io.BytesIO(decrypted), media_type=doc["content_type"],
+        headers={"Content-Disposition": f'attachment; filename="{doc["filename"]}"'})
+
+@router.get("/documents/list")
+async def list_user_documents(user: dict = Depends(get_current_user)):
+    db = get_database()
+    cursor = db[COLL_USER_DOCUMENTS].find({"user_email": user.get("sub", "")}).sort("created_at", -1)
+    docs = await cursor.to_list(length=200)
+    return [doc_to_id(d) for d in docs]
+
+@router.delete("/documents/{id}")
+async def delete_document(id: str, user: dict = Depends(get_current_user)):
+    db = get_database()
+    result = await db[COLL_USER_DOCUMENTS].delete_one({"_id": obid(id), "user_email": user.get("sub", "")})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"detail": "Document permanently deleted", "id": id}
+
+# ── Admin Document Review ────────────────────────────────────────────
+
+@router.get("/admin/documents/pending")
+async def get_pending_documents(status: str = None, limit: int = 100, offset: int = 0, admin: dict = Depends(get_current_admin)):
+    db = get_database()
+    query = {}
+    if status:
+        query["status"] = status
+    cursor = db[COLL_USER_DOCUMENTS].find(query).sort("created_at", -1).skip(offset).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    return [doc_to_id(d) for d in docs]
+
+@router.post("/admin/documents/{id}/review")
+async def review_document(id: str, review: DocumentReview, admin: dict = Depends(get_current_admin)):
+    db = get_database()
+    doc = await db[COLL_USER_DOCUMENTS].find_one({"_id": obid(id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if review.status == "rejected" and not review.reviewer_notes.strip():
+        raise HTTPException(status_code=400, detail="Notes required when rejecting")
+    await db[COLL_USER_DOCUMENTS].update_one({"_id": obid(id)},
+        {"$set": {"status": review.status, "reviewed_by": admin.get("sub", ""),
+                  "reviewed_at": datetime.utcnow().isoformat(), "reviewer_notes": review.reviewer_notes}})
+    notif = {"user_email": doc["user_email"], "type": "document",
+             "title": f"Document {review.status}",
+             "message": f"Your document '{doc['filename']}' has been {review.status}." +
+                        (f"\n{review.reviewer_notes}" if review.reviewer_notes else ""),
+             "created_at": datetime.utcnow().isoformat()}
+    await db[COLL_NOTIFICATIONS].insert_one(notif)
+    return {"detail": f"Document {review.status}", "id": id}
+
+@router.get("/admin/documents/stats")
+async def get_document_stats(admin: dict = Depends(get_current_admin)):
+    db = get_database()
+    total = await db[COLL_USER_DOCUMENTS].count_documents({})
+    pending = await db[COLL_USER_DOCUMENTS].count_documents({"status": "uploaded"})
+    approved = await db[COLL_USER_DOCUMENTS].count_documents({"status": "approved"})
+    rejected = await db[COLL_USER_DOCUMENTS].count_documents({"status": "rejected"})
+    return {"total": total, "pending": pending, "approved": approved, "rejected": rejected}
+
+# ── Dashboard ────────────────────────────────────────────────────────
+
 @router.get("/dashboard/user")
-async def get_user_dashboard(user: dict = Depends(get_current_user), response: Response = None):
-    user_email = user.get("sub", "")
-
-    # Try cache first
-    cached = await get_cached_user_session(user_email)
-    if cached:
-        if response:
-            response.headers["X-Cache-Hit"] = "true"
-            response.headers["X-Cache-TTL"] = "1800"
-        cached["cached"] = True
-        return cached
-
-    # Returns some static mock structural data combined with dynamic user fields
-    dashboard_data = {
-        "user_name": str(user.get("sub", "User")).split("@")[0].capitalize(),
-        "email": user.get("sub"),
-        "active_case": {
-            "status": "Documents Verified",
-            "message": "Your standard application has successfully passed the document verification stage."
-        },
-        "next_appointment": {
-            "date": "Oct 24",
-            "title": "Biometric Enrollment",
-            "time": "10:30 AM (GMT +1)",
-            "location": "VFS Global, London"
-        },
+async def get_user_dashboard(user: dict = Depends(get_current_user)):
+    email = user.get("sub", "")
+    db = get_database()
+    user_doc = await db[COLL_USERS].find_one({"email": email})
+    is_bypass = bool(user_doc and user_doc.get("bypass"))
+    return {"user_name": str(email).split("@")[0].capitalize(), "email": email,
+        "bypass_mode": is_bypass,
+        "bypass_message": "Demo account — document verification is bypassed" if is_bypass else None,
+        "active_case": {"status": "Documents Verified", "message": "Standard application passed document verification."},
+        "next_appointment": {"date": "Oct 24", "title": "Biometric Enrollment", "time": "10:30 AM (GMT +1)", "location": "VFS Global, London"},
         "recent_activities": [
-            {"title": "Documents Verified", "desc": "System updated status automatically", "time": "Today, 2:45 PM", "status": "completed"},
-            {"title": "Proof of Funds Uploaded", "desc": "Bank Statement 2023_Oct.pdf", "time": "Yesterday, 9:15 AM", "status": "in_progress"},
-            {"title": "Application Form Signed", "desc": "Digital signature captured", "time": "Oct 19, 2023", "status": "pending"}
-        ],
-        "documents": [
-            {"name": "Passport_Scan.pdf", "size": "2.4 MB", "icon": "picture_as_pdf"},
-            {"name": "Employment_Letter.docx", "size": "840 KB", "icon": "description"},
-            {"name": "Portrait_Photo.jpg", "size": "4.1 MB", "icon": "image"}
-        ]
-    }
+            {"title": "Documents Verified", "desc": "System auto-update", "time": "Today, 2:45 PM", "status": "completed"},
+            {"title": "Proof of Funds Uploaded", "desc": "Bank Statement", "time": "Yesterday, 9:15 AM", "status": "in_progress"}],
+        "documents": [{"name": "Passport_Scan.pdf", "size": "2.4 MB", "icon": "picture_as_pdf"}]}
 
-    # Cache the dashboard data
-    await cache_user_session(user_email, dashboard_data)
-
-    if response:
-        response.headers["X-Cache-Hit"] = "false"
-        response.headers["X-Cache-TTL"] = "1800"
-
-    dashboard_data["cached"] = False
-    return dashboard_data
+@router.get("/user/status")
+async def get_user_status(user: dict = Depends(get_current_user)):
+    db = get_database()
+    user_doc = await db[COLL_USERS].find_one({"email": user.get("sub", "")})
+    return {"bypass_mode": bool(user_doc and user_doc.get("bypass")), "role": user.get("role")}
 
 @router.get("/dashboard/admin")
 async def get_admin_dashboard(admin: dict = Depends(get_current_admin)):
     db = get_database()
-    users_count = await db.users.count_documents({})
-    visas_count = await db.visas.count_documents({})
-    return {
-        "admin_name": str(admin.get("sub", "Admin")).split("@")[0].capitalize(),
-        "total_users": users_count,
-        "active_applications": visas_count,
-        "approval_rate": "87%",
-        "processing_time": "14 Days"
-    }
+    users_count = await db[COLL_USERS].count_documents({})
+    visas_count = await db[COLL_VISAS].count_documents({})
+    return {"admin_name": str(admin.get("sub", "Admin")).split("@")[0].capitalize(),
+            "total_users": users_count, "active_applications": visas_count,
+            "approval_rate": "87%", "processing_time": "14 Days"}
 
 @router.get("/progress")
 async def get_progress(user: dict = Depends(get_current_user)):
     db = get_database()
-    # returning the seed or default
-    prog = await db.progress.find_one({"user_email": "testuser_1234@test.com"})
+    prog = await db[COLL_PROGRESS].find_one({"user_email": user.get("sub", "")})
     if not prog:
         return {"progress_steps": [], "stats": {}}
-    return {"progress_steps": prog.get("progress_steps", []), "stats": prog.get("stats", {})}
+    return {"progress_steps": json.loads(prog.get("progress_steps", "[]")),
+            "stats": json.loads(prog.get("stats", "{}"))}
 
 @router.get("/workflow")
 async def get_workflow(admin: dict = Depends(get_current_admin)):
     db = get_database()
-    cursor = db.workflow.find({})
-    workflows = await cursor.to_list(length=100)
-    for w in workflows:
-        w["_id"] = str(w["_id"])
-    return workflows
+    cursor = db[COLL_WORKFLOW].find()
+    rows = await cursor.to_list(length=200)
+    return [{"_id": str(w["_id"]), "id": w.get("task_id"), "type": w.get("type"), "priority": w.get("priority"), "time": w.get("time"), "user": w.get("user")} for w in rows]
+
+# ── Scraper ──────────────────────────────────────────────────────────
 
 @router.get("/scraper-logs")
-async def get_scraper_logs(
-    target: str = None,
-    level: str = None,
-    since: str = None,
-    limit: int = 50,
-    skip: int = 0,
-    admin: dict = Depends(get_current_admin)
-):
-    """
-    Get scraper logs with filtering and pagination.
-    Filters:
-    - target: Filter by embassy/target (e.g., "UK", "Germany")
-    - level: Filter by log level (INFO, WARNING, ERROR)
-    - since: Filter by date (ISO format, e.g., "2024-01-01")
-    - limit: Number of results (default 50)
-    - skip: Number of results to skip (for pagination)
-    """
+async def get_scraper_logs(target: str = None, level: str = None, since: str = None,
+                           limit: int = 50, skip: int = 0, admin: dict = Depends(get_current_admin)):
     db = get_database()
-    
-    # Build query
     query = {}
-    if target:
-        query["target"] = {"$regex": target, "$options": "i"}
-    if level:
-        query["level"] = level.upper()
-    if since:
-        query["timestamp"] = {"$gte": since}
-    
-    # Get total count
-    total_count = await db.scraper_logs.count_documents(query)
-    
-    # Get paginated results (newest first)
-    cursor = db.scraper_logs.find(query).sort("timestamp", -1).skip(skip).limit(limit)
+    if target: query["target"] = {"$regex": target, "$options": "i"}
+    if level: query["level"] = level.upper()
+    if since: query["timestamp"] = {"$gte": since}
+    total = await db[COLL_SCRAPER_LOGS].count_documents(query)
+    cursor = db[COLL_SCRAPER_LOGS].find(query).sort("timestamp", -1).skip(skip).limit(limit)
     logs = await cursor.to_list(length=limit)
-    for l in logs:
-        l["_id"] = str(l["_id"])
-    
-    return {
-        "logs": logs,
-        "total": total_count,
-        "page": (skip // limit) + 1,
-        "limit": limit
-    }
-
-
-@router.post("/scraper-logs/clear")
-async def clear_scraper_logs(
-    older_than_days: int = 30,
-    admin: dict = Depends(get_current_admin)
-):
-    """Clear old scraper logs (admin only)."""
-    import datetime
-    db = get_database()
-    
-    # Calculate cutoff date
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=older_than_days)
-    
-    # Delete logs older than cutoff
-    result = await db.scraper_logs.delete_many({
-        "timestamp": {"$lt": cutoff.isoformat()}
-    })
-    
-    return {
-        "message": f"Deleted {result.deleted_count} old log entries",
-        "deleted_count": result.deleted_count
-    }
-
+    return {"logs": [doc_to_id(l) for l in logs], "total": total, "page": (skip // limit) + 1, "limit": limit}
 
 @router.get("/scraper-stats")
 async def get_scraper_stats(admin: dict = Depends(get_current_admin)):
-    """Get aggregated scraper statistics."""
-    from datetime import datetime, timedelta
     db = get_database()
-    
-    # Get today's date
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    
-    # Total logs today
-    today_logs = await db.scraper_logs.count_documents({
-        "timestamp": {"$gte": today}
-    })
-    
-    # Count by level
-    level_counts = {}
-    for level in ["INFO", "WARNING", "ERROR"]:
-        count = await db.scraper_logs.count_documents({"level": level})
-        level_counts[level] = count
-    
-    # Count by target
-    target_counts = {}
-    cursor = db.scraper_logs.distinct("target")
-    targets = await cursor.to_list(length=100)
-    for t in targets:
-        count = await db.scraper_logs.count_documents({"target": t})
-        target_counts[t] = count
-    
-    # Success rate (ERRORs vs total)
-    total_logs = await db.scraper_logs.count_documents({})
-    success_rate = ((total_logs - level_counts.get("ERROR", 0)) / total_logs * 100) if total_logs > 0 else 100
-    
-    # Last successful scrape
-    last_success = await db.scraper_logs.find_one(
-        {"level": "INFO", "status": "success"},
-        sort=[("timestamp", -1)]
-    )
-    
-    return {
-        "total_scrapes_today": today_logs,
-        "success_rate": round(success_rate, 2),
-        "last_successful_scrape": last_success["timestamp"] if last_success else None,
-        "active_errors": level_counts.get("ERROR", 0),
-        "by_level": level_counts,
-        "by_target": target_counts
-    }
+    pipeline = [{"$group": {"_id": None,
+        "total": {"$sum": 1}, "errors": {"$sum": {"$cond": [{"$eq": ["$level", "ERROR"]}, 1, 0]}},
+        "warnings": {"$sum": {"$cond": [{"$eq": ["$level", "WARNING"]}, 1, 0]}},
+        "infos": {"$sum": {"$cond": [{"$eq": ["$level", "INFO"]}, 1, 0]}}}}]
+    agg = await db[COLL_SCRAPER_LOGS].aggregate(pipeline).to_list(length=1)
+    target_agg = await db[COLL_SCRAPER_LOGS].aggregate([{"$group": {"_id": "$target", "count": {"$sum": 1}}}]).to_list(length=100)
+    a = agg[0] if agg else {}
+    total = a.get("total", 0)
+    errors = a.get("errors", 0)
+    last = await db[COLL_SCRAPER_LOGS].find_one({"level": "INFO", "status": "success"}, sort=[("timestamp", -1)])
+    return {"total_scrapes_today": 0, "success_rate": round(((total - errors) / total * 100) if total else 100, 2),
+            "last_successful_scrape": last["timestamp"] if last else None, "active_errors": errors,
+            "by_level": {"INFO": a.get("infos", 0), "WARNING": a.get("warnings", 0), "ERROR": errors},
+            "by_target": {t["_id"]: t["count"] for t in target_agg if t["_id"]}}
 
+# ── Appointment Booking ──────────────────────────────────────────────
 
-@router.get("/scraper-status")
-async def get_scraper_status(admin: dict = Depends(get_current_admin)):
-    """Get current scrape status for all targets."""
+@router.get("/appointments/slots")
+async def get_available_slots(month: int, year: int, user: dict = Depends(get_current_user)):
+    import calendar
+    from datetime import date
+    month_str = f"{year:04d}-{month:02d}"
     db = get_database()
-    
-    # List of known embassy targets
-    targets = ["UK", "Germany", "France", "Spain", "Italy", "USA", "Canada", "Australia", "Japan"]
-    
-    status_list = []
-    for target in targets:
-        # Get last log for this target
-        last_log = await db.scraper_logs.find_one(
-            {"target": {"$regex": target, "$options": "i"}},
-            sort=[("timestamp", -1)]
-        )
-        
-        # Count consecutive failures
-        recent_logs = await db.scraper_logs.find(
-            {"target": {"$regex": target, "$options": "i"}}
-        ).sort("timestamp", -1).limit(5).to_list(length=5)
-        
-        failures = sum(1 for log in recent_logs if log.get("level") == "ERROR")
-        
-        # Determine status
-        if not last_log:
-            status = "never_run"
-        elif failures >= 3:
-            status = "error"
-        elif failures > 0:
-            status = "warning"
-        else:
-            status = "healthy"
-        
-        status_list.append({
-            "target": target,
-            "status": status,
-            "last_run": last_log["timestamp"] if last_log else None,
-            "last_status": last_log["status"] if last_log else None,
-            "consecutive_failures": failures
-        })
-    
-    return {"targets": status_list}
+    cursor = db[COLL_APPOINTMENTS].find({"date": {"$regex": f"^{month_str}"}, "status": {"$in": ["confirmed", "completed"]}})
+    booked = await cursor.to_list(length=200)
+    booked_set = {(b["date"], b["time_slot"]) for b in booked}
+    num_days = calendar.monthrange(year, month)[1]
+    time_slots = [f"{h}:00 {'AM' if h < 12 else 'PM'}" for h in range(9, 17)]
+    slots_by_day = []
+    for day in range(1, num_days + 1):
+        d = date(year, month, day)
+        if d.weekday() >= 5:
+            continue
+        date_str = f"{month_str}-{day:02d}"
+        slots_by_day.append({"date": date_str, "day_name": d.strftime("%a"),
+            "slots": [{"time": ts, "display": ts, "available": (date_str, ts) not in booked_set} for ts in time_slots]})
+    return {"month": month, "year": year, "days": slots_by_day}
 
-
-@router.post("/scraper/run")
-async def trigger_scraper(
-    target: str = None,
-    admin: dict = Depends(get_current_admin)
-):
-    """Trigger scraper for a specific target or all targets."""
-    import datetime
+@router.post("/appointments/book")
+async def book_appointment(booking: AppointmentCreate, user: dict = Depends(get_current_user)):
     db = get_database()
-    
-    # Log the scrape request
-    log_entry = {
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-        "target": target if target else "all",
-        "action": "manual_scrape",
-        "level": "INFO",
-        "status": "started",
-        "message": f"Manual scrape triggered for {target if target else 'all targets'}",
-        "details": {}
-    }
-    
-    await db.scraper_logs.insert_one(log_entry)
-    
-    # In a real implementation, this would trigger the actual scraper
-    # For now, just return success
-    return {
-        "message": "Scrape triggered successfully",
-        "target": target if target else "all",
-        "log_id": str(log_entry["_id"])
-    }
+    existing = await db[COLL_APPOINTMENTS].find_one(
+        {"date": booking.date, "time_slot": booking.time_slot, "status": {"$in": ["confirmed", "completed"]}})
+    if existing:
+        raise HTTPException(status_code=409, detail="This time slot is already booked")
+    doc = {"user_email": user.get("sub", ""), "visa_type_id": booking.visa_type_id,
+           "date": booking.date, "time_slot": booking.time_slot, "status": "confirmed",
+           "location": booking.location or "VFS Global Center", "notes": booking.notes or "",
+           "created_at": datetime.utcnow().isoformat()}
+    result = await db[COLL_APPOINTMENTS].insert_one(doc)
+    await db[COLL_NOTIFICATIONS].insert_one({"user_email": user.get("sub", ""), "type": "appointment",
+        "title": "Appointment Confirmed",
+        "message": f"Your appointment on {booking.date} at {booking.time_slot} has been confirmed.",
+        "created_at": datetime.utcnow().isoformat()})
+    return {"id": str(result.inserted_id), "date": booking.date, "time_slot": booking.time_slot,
+            "status": "confirmed", "location": booking.location, "message": "Appointment booked successfully"}
 
-@router.get("/appointments")
-async def get_appointments(user: dict = Depends(get_current_user)):
+@router.get("/appointments/my")
+async def get_my_appointments(user: dict = Depends(get_current_user)):
     db = get_database()
-    # default to testuser_1234@test.com for demo
-    appts = await db.appointments.find_one({"user_email": "testuser_1234@test.com"})
-    if not appts:
-        return {"selected": {}, "available_slots": [], "month": "October 2023"}
-    appts["_id"] = str(appts["_id"])
-    return appts
+    cursor = db[COLL_APPOINTMENTS].find({"user_email": user.get("sub", "")}).sort("date", 1)
+    rows = await cursor.to_list(length=100)
+    return [{"id": str(r["_id"]), "date": r["date"], "time_slot": r["time_slot"], "status": r["status"],
+             "location": r.get("location"), "notes": r.get("notes"), "created_at": r.get("created_at")} for r in rows]
+
+@router.delete("/appointments/{id}")
+async def cancel_appointment(id: str, user: dict = Depends(get_current_user)):
+    db = get_database()
+    doc = await db[COLL_APPOINTMENTS].find_one({"_id": obid(id), "user_email": user.get("sub", "")})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    if doc.get("status") == "cancelled":
+        raise HTTPException(status_code=400, detail="Already cancelled")
+    await db[COLL_APPOINTMENTS].update_one({"_id": obid(id)}, {"$set": {"status": "cancelled"}})
+    return {"detail": "Appointment cancelled", "id": id}
+
+# ── Documents (legacy) ───────────────────────────────────────────────
 
 @router.get("/documents")
 async def get_documents(user: dict = Depends(get_current_user)):
     db = get_database()
-    docs = await db.documents.find_one({"user_email": "testuser_1234@test.com"})
-    if not docs:
+    doc = await db[COLL_USER_DOCUMENTS].find_one({"user_email": user.get("sub", "")})
+    if not doc:
         return {"active_processing": {}, "checklist": []}
-    docs["_id"] = str(docs["_id"])
-    return docs
+    return {"_id": str(doc["_id"]),
+            "active_processing": json.loads(doc.get("active_processing", "{}")) if isinstance(doc.get("active_processing"), str) else doc.get("active_processing", {}),
+            "checklist": json.loads(doc.get("checklist", "[]")) if isinstance(doc.get("checklist"), str) else doc.get("checklist", [])}
 
+# ── Tracking Simulation ──────────────────────────────────────────────
 
-# ==================== Scheduler Endpoints ====================
+@router.post("/tracking/simulate")
+async def simulate_tracking(user: dict = Depends(get_current_user)):
+    return {"application_id": "VF-9928341", "country": "United Kingdom", "visa_type": "Tier 4 Student Visa",
+        "simulation_steps": [
+            {"step": 1, "title": "Application Received", "description": "Received at VFS Global.", "location": "VFS Global, Mumbai", "coordinates": {"lat": 19.076, "lng": 72.8777}, "timestamp": "2023-10-12T09:00:00Z", "status": "completed", "duration_seconds": 3},
+            {"step": 2, "title": "Documents Forwarded", "description": "Forwarded to Embassy.", "location": "Destination Embassy", "coordinates": {"lat": 28.6139, "lng": 77.209}, "timestamp": "2023-10-14T14:30:00Z", "status": "completed", "duration_seconds": 4},
+            {"step": 3, "title": "Under Review", "description": "Under review by visa officer.", "location": "Visa Processing Center", "coordinates": {"lat": 53.3811, "lng": -1.4701}, "timestamp": "2023-10-18T10:00:00Z", "status": "in_progress", "duration_seconds": 5},
+            {"step": 4, "title": "Additional Verification", "description": "Background verification.", "location": "UKVI Hub, London", "coordinates": {"lat": 51.5074, "lng": -0.1278}, "timestamp": "2023-10-22T11:00:00Z", "status": "pending", "duration_seconds": 4},
+            {"step": 5, "title": "Decision Made", "description": "Decision has been made.", "location": "Visa Office", "coordinates": {"lat": 53.3811, "lng": -1.4701}, "timestamp": "2023-10-28T16:00:00Z", "status": "pending", "duration_seconds": 3}]}
 
-# Global scheduler instance
-_scheduler = None
+# ── Notifications ────────────────────────────────────────────────────
 
+@router.get("/notifications")
+async def get_notifications(user: dict = Depends(get_current_user)):
+    db = get_database()
+    cursor = db[COLL_NOTIFICATIONS].find({"user_email": user.get("sub", "")}).sort("created_at", -1).limit(20)
+    rows = await cursor.to_list(length=20)
+    return [{"id": str(n["_id"]), "type": n.get("type"), "title": n.get("title"),
+             "message": n.get("message"), "read": bool(n.get("read", 0)), "created_at": n.get("created_at")} for n in rows]
 
-def get_scheduler():
-    """Get or initialize the scheduler."""
-    global _scheduler
-    if _scheduler is None:
-        import sys
-        import os
-        # Add rag_pipeline to path
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from rag_pipeline.scheduler import EmbassyScheduler, SchedulerConfig
-        config = SchedulerConfig()
-        _scheduler = EmbassyScheduler(config)
-        _scheduler.start()
-    return _scheduler
+@router.put("/notifications/{id}/read")
+async def mark_notification_read(id: str, user: dict = Depends(get_current_user)):
+    db = get_database()
+    result = await db[COLL_NOTIFICATIONS].update_one(
+        {"_id": obid(id), "user_email": user.get("sub", "")}, {"$set": {"read": 1}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"detail": "marked read"}
 
+# ── Queries / Support Tickets ────────────────────────────────────────
 
-@router.get("/scheduler/jobs")
-async def list_scheduler_jobs(admin: dict = Depends(get_current_admin)):
-    """List all scheduled jobs."""
-    scheduler = get_scheduler()
-    return {
-        "jobs": scheduler.list_jobs()
-    }
+@router.post("/queries")
+async def create_query(query_data: dict, user: dict = Depends(get_current_user)):
+    if not query_data.get("subject") or not query_data.get("message"):
+        raise HTTPException(status_code=400, detail="Subject and message are required")
+    db = get_database()
+    doc = {"user_email": user.get("sub", ""), "subject": query_data["subject"],
+           "message": query_data["message"], "status": "open", "created_at": datetime.utcnow().isoformat()}
+    result = await db[COLL_QUERIES].insert_one(doc)
+    await db[COLL_NOTIFICATIONS].insert_one({"user_email": user.get("sub", ""), "type": "query",
+        "title": "Query Submitted", "message": f"Your query '{query_data['subject']}' has been submitted.",
+        "created_at": datetime.utcnow().isoformat()})
+    return {"id": str(result.inserted_id), "status": "open"}
 
+@router.get("/queries")
+async def get_my_queries(user: dict = Depends(get_current_user)):
+    db = get_database()
+    cursor = db[COLL_QUERIES].find({"user_email": user.get("sub", "")}).sort("created_at", -1)
+    rows = await cursor.to_list(length=100)
+    return [{"id": str(q["_id"]), "subject": q["subject"], "status": q["status"], "created_at": q.get("created_at")} for q in rows]
 
-@router.post("/scheduler/jobs")
-async def add_scheduler_job(
-    job_config: dict,
-    admin: dict = Depends(get_current_admin)
-):
-    """Add a new scheduled job."""
-    scheduler = get_scheduler()
-    
-    job_id = job_config.get("job_id")
-    job_type = job_config.get("type")  # "cron" or "interval"
-    
-    if not job_id or not job_type:
-        raise HTTPException(
-            status_code=400,
-            detail="job_id and type are required"
-        )
-    
-    # Import the function to run
-    try:
-        if job_config.get("target") == "daily":
-            func = scheduler._run_daily_update
-        elif job_config.get("target") == "weekly":
-            func = scheduler._run_weekly_scan
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid target. Use 'daily' or 'weekly'"
-            )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    # Create trigger based on type
-    from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.interval import IntervalTrigger
-    
-    if job_type == "cron":
-        trigger = CronTrigger(
-            hour=job_config.get("hour", 2),
-            minute=job_config.get("minute", 0),
-            day_of_week=job_config.get("day_of_week", "*")
-        )
-    elif job_type == "interval":
-        trigger = IntervalTrigger(
-            days=job_config.get("days", 1),
-            hours=job_config.get("hours", 0),
-            minutes=job_config.get("minutes", 0)
-        )
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid job type. Use 'cron' or 'interval'"
-        )
-    
-    result = scheduler.add_job(
-        job_id=job_id,
-        func=func,
-        trigger=trigger,
-        name=job_config.get("name", job_id),
-        description=job_config.get("description", "")
-    )
-    
-    if result:
-        return {"message": "Job added successfully", "job_id": result}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to add job")
+@router.get("/queries/{id}")
+async def get_query_detail(id: str, user: dict = Depends(get_current_user)):
+    db = get_database()
+    q = await db[COLL_QUERIES].find_one({"_id": obid(id), "user_email": user.get("sub", "")})
+    if not q:
+        raise HTTPException(status_code=404, detail="Query not found")
+    cursor = db[COLL_QUERY_RESPONSES].find({"query_id": id}).sort("created_at", 1)
+    responses = await cursor.to_list(length=100)
+    return {"id": str(q["_id"]), "subject": q["subject"], "message": q["message"], "status": q.get("status"),
+            "assigned_to": q.get("assigned_to"), "created_at": q.get("created_at"),
+            "responses": [{"responder": r["responder_email"], "message": r["message"], "created_at": r.get("created_at")} for r in responses]}
 
+@router.post("/queries/{id}/respond")
+async def respond_to_query(id: str, response_data: dict, admin: dict = Depends(get_current_admin)):
+    if not response_data.get("message"):
+        raise HTTPException(status_code=400, detail="Response message is required")
+    db = get_database()
+    q = await db[COLL_QUERIES].find_one({"_id": obid(id)})
+    if not q:
+        raise HTTPException(status_code=404, detail="Query not found")
+    await db[COLL_QUERY_RESPONSES].insert_one({"query_id": id, "responder_email": admin.get("sub", ""),
+        "message": response_data["message"], "created_at": datetime.utcnow().isoformat()})
+    await db[COLL_QUERIES].update_one({"_id": obid(id)}, {"$set": {"status": "responded"}})
+    await db[COLL_NOTIFICATIONS].insert_one({"user_email": q["user_email"], "type": "query",
+        "title": "Query Response", "message": f"Your query '{q['subject']}' has been responded to.",
+        "created_at": datetime.utcnow().isoformat()})
+    return {"detail": "Response added", "query_id": id}
 
-@router.delete("/scheduler/jobs/{job_id}")
-async def remove_scheduler_job(job_id: str, admin: dict = Depends(get_current_admin)):
-    """Remove a scheduled job."""
-    scheduler = get_scheduler()
-    if scheduler.remove_job(job_id):
-        return {"message": "Job removed successfully", "job_id": job_id}
-    else:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+@router.get("/admin/queries")
+async def get_all_queries(status: str = None, limit: int = 100, offset: int = 0, admin: dict = Depends(get_current_admin)):
+    db = get_database()
+    query = {}
+    if status:
+        query["status"] = status
+    cursor = db[COLL_QUERIES].find(query).sort("created_at", -1).skip(offset).limit(limit)
+    rows = await cursor.to_list(length=limit)
+    return [{"id": str(q["_id"]), "user_email": q["user_email"], "subject": q["subject"], "status": q["status"], "created_at": q.get("created_at")} for q in rows]
 
-
-@router.post("/scheduler/jobs/{job_id}/run")
-async def trigger_scheduler_job(job_id: str, admin: dict = Depends(get_current_admin)):
-    """Trigger immediate run of a job."""
-    scheduler = get_scheduler()
-    if scheduler.run_job(job_id):
-        return {"message": "Job triggered successfully", "job_id": job_id}
-    else:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
-
-
-@router.get("/scheduler/jobs/{job_id}/results")
-async def get_job_results(job_id: str, admin: dict = Depends(get_current_admin)):
-    """Get job execution history."""
-    scheduler = get_scheduler()
-    limit = 10
-    return {
-        "job_id": job_id,
-        "results": scheduler.get_job_results(job_id, limit),
-        "stats": scheduler.get_job_stats(job_id)
-    }
-
-
-# ==================== Notification Endpoints ====================
-
-class NotificationPreferences(BaseModel):
-    email_enabled: bool = True
-    sms_enabled: bool = False
-    phone: str = None
-    notification_types: list = []
-
-
-@router.get("/notifications/preferences")
-async def get_notification_preferences(user: dict = Depends(get_current_user)):
-    """Get user's notification preferences"""
-    from .notification_service import get_user_preferences
-    
-    user_email = user.get("sub", "")
-    prefs = await get_user_preferences(user_email)
-    return prefs
-
-
-@router.put("/notifications/preferences")
-async def update_notification_preferences(
-    preferences: NotificationPreferences,
-    user: dict = Depends(get_current_user)
-):
-    """Update user's notification preferences"""
-    from .notification_service import update_user_preferences
-    
-    user_email = user.get("sub", "")
-    result = await update_user_preferences(
-        user_email,
-        preferences.dict(exclude_none=True)
-    )
-    return result
-
-
-@router.get("/notifications/history")
-async def get_notification_history(
-    limit: int = 50,
-    user: dict = Depends(get_current_user)
-):
-    """Get user's notification history"""
-    from .notification_service import get_notification_history
-    
-    user_email = user.get("sub", "")
-    history = await get_notification_history(user_email, limit)
-    return {"notifications": history, "count": len(history)}
-
-
-# Admin notification endpoints
-@router.post("/notifications/send")
-async def send_manual_notification(
-    recipient_email: str,
-    subject: str,
-    body: str,
-    admin: dict = Depends(get_current_admin)
-):
-    """Send manual notification to a user (admin only)"""
-    from .notification_service import send_notification, NotificationRecipient, NotificationPayload, NotificationType, NotificationPriority
-    
-    recipient = NotificationRecipient(email=recipient_email, user_id=recipient_email)
-    payload = NotificationPayload(
-        subject=subject,
-        body=body,
-        priority=NotificationPriority.MEDIUM
-    )
-    
-    result = await send_notification(
-        recipient,
-        payload,
-        NotificationType.ADMIN_ALERT
-    )
-    
-    return {
-        "success": result.success,
-        "notification_id": result.notification_id,
-        "channels": result.channels,
-        "errors": result.errors
-    }
-
-
-@router.post("/notifications/trigger/status-change")
-async def trigger_status_change_notification(
-    user_email: str,
-    old_status: str,
-    new_status: str,
-    additional_info: str = "",
-    admin: dict = Depends(get_current_admin)
-):
-    """Trigger status change notification (admin only)"""
-    from .notification_service import notify_status_change
-    
-    result = await notify_status_change(user_email, old_status, new_status, additional_info)
-    return result
-
-
-@router.post("/notifications/trigger/appointment-reminder")
-async def trigger_appointment_reminder(
-    user_email: str,
-    appointment_date: str,
-    appointment_time: str,
-    location: str,
-    appointment_type: str,
-    admin: dict = Depends(get_current_admin)
-):
-    """Trigger appointment reminder notification (admin only)"""
-    from .notification_service import notify_appointment_reminder
-    
-    result = await notify_appointment_reminder(
-        user_email, appointment_date, appointment_time, location, appointment_type
-    )
-    return result
-
-
-# ==================== Cache Management Endpoints ====================
+# ── Cache ────────────────────────────────────────────────────────────
 
 @router.get("/cache/stats")
 async def get_cache_statistics(admin: dict = Depends(get_current_admin)):
-    """Get cache statistics (admin only)."""
-    stats = await get_cache_stats()
-    return stats
-
+    return await get_cache_stats()
 
 @router.post("/cache/clear")
-async def clear_cache(
-    cache_type: Optional[str] = None,
-    admin: dict = Depends(get_current_admin)
-):
-    """
-    Clear cache entries (admin only).
-    
-    Args:
-        cache_type: Optional filter - "visa", "rag", "session", or None for all
-    """
+async def clear_cache(cache_type: Optional[str] = None, admin: dict = Depends(get_current_admin)):
     from .cache import invalidate_visa_cache, invalidate_rag_cache, get_cache
-
     if cache_type == "visa":
         deleted = await invalidate_visa_cache()
     elif cache_type == "rag":
@@ -791,31 +738,68 @@ async def clear_cache(
         cache = await get_cache()
         deleted = await cache.clear_pattern("session:*")
     else:
-        # Clear all cache
         cache = await get_cache()
         deleted = await cache.clear_all()
+    return {"message": "Cache cleared", "deleted_count": deleted, "cache_type": cache_type or "all"}
 
-    return {
-        "message": f"Cache cleared successfully",
-        "deleted_count": deleted,
-        "cache_type": cache_type if cache_type else "all"
-    }
+# ── Scheduler Endpoints ──────────────────────────────────────────────
 
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 
-@router.delete("/cache/{cache_key}")
-async def delete_cache_entry(
-    cache_key: str,
-    admin: dict = Depends(get_current_admin)
-):
-    """Delete a specific cache entry (admin only)."""
-    from .cache import get_cache
+_scheduler = None
+_scheduler_lock = False
 
-    cache = await get_cache()
-    deleted = await cache.delete(cache_key)
+def get_scheduler():
+    global _scheduler, _scheduler_lock
+    if _scheduler is None and not _scheduler_lock:
+        _scheduler_lock = True
+        try:
+            from rag_pipeline.scheduler import EmbassyScheduler, SchedulerConfig
+            config = SchedulerConfig()
+            if config.enabled:
+                _scheduler = EmbassyScheduler(config)
+                _scheduler.start()
+        except Exception as e:
+            logger.warning("Scheduler init failed: %s", e)
+        finally:
+            _scheduler_lock = False
+    return _scheduler
 
-    return {
-        "message": "Cache entry deleted" if deleted else "Cache key not found",
-        "cache_key": cache_key,
-        "deleted": deleted
-    }
+@router.get("/scheduler/jobs")
+async def list_scheduler_jobs(admin: dict = Depends(get_current_admin)):
+    s = get_scheduler()
+    if not s: return {"jobs": []}
+    return {"jobs": s.list_jobs()}
 
+@router.post("/scheduler/jobs")
+async def add_scheduler_job(job_config: dict, admin: dict = Depends(get_current_admin)):
+    s = get_scheduler()
+    if not s: raise HTTPException(status_code=503, detail="Scheduler not available")
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+    job_id = job_config.get("job_id")
+    job_type = job_config.get("type")
+    if not job_id or not job_type:
+        raise HTTPException(status_code=400, detail="job_id and type required")
+    func = s._run_daily_update if job_config.get("target") == "daily" else s._run_weekly_scan
+    trigger = CronTrigger(hour=job_config.get("hour", 2), minute=job_config.get("minute", 0)) if job_type == "cron" \
+        else IntervalTrigger(days=job_config.get("days", 1))
+    result = s.add_job(job_id=job_id, func=func, trigger=trigger, name=job_config.get("name", job_id))
+    if result:
+        return {"message": "Job added", "job_id": result}
+    raise HTTPException(status_code=500, detail="Failed to add job")
+
+@router.delete("/scheduler/jobs/{job_id}")
+async def remove_scheduler_job(job_id: str, admin: dict = Depends(get_current_admin)):
+    s = get_scheduler()
+    if not s or not s.remove_job(job_id):
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    return {"message": "Job removed", "job_id": job_id}
+
+@router.post("/scheduler/jobs/{job_id}/run")
+async def trigger_scheduler_job(job_id: str, admin: dict = Depends(get_current_admin)):
+    s = get_scheduler()
+    if not s or not s.run_job(job_id):
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    return {"message": "Job triggered", "job_id": job_id}

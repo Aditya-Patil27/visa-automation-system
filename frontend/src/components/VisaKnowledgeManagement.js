@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const VisaKnowledgeManagement = () => {
     const [visas, setVisas] = useState([]);
@@ -17,7 +21,6 @@ const VisaKnowledgeManagement = () => {
         processing_time: ''
     });
     const [toast, setToast] = useState(null);
-    const navigate = useNavigate();
 
     const showToast = (message, type = 'success') => {
         setToast({ message, type });
@@ -25,22 +28,9 @@ const VisaKnowledgeManagement = () => {
     };
 
     const fetchVisas = async () => {
-        const token = localStorage.getItem('access_token');
-        if (!token) {
-            navigate('/login');
-            return;
-        }
-
         try {
-            const res = await fetch('http://localhost:8000/visa', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setVisas(data);
-            } else if (res.status === 401) {
-                navigate('/login');
-            }
+            const data = await api.get('/visa');
+            setVisas(data);
         } catch (err) {
             console.error("Failed to fetch visas", err);
             showToast('Failed to fetch visa requirements', 'error');
@@ -51,7 +41,7 @@ const VisaKnowledgeManagement = () => {
 
     useEffect(() => {
         fetchVisas();
-    }, [navigate]);
+    }, []);
 
     const countries = useMemo(() => {
         const unique = [...new Set(visas.map(v => v.country))];
@@ -110,7 +100,6 @@ const VisaKnowledgeManagement = () => {
     };
 
     const handleSubmit = async () => {
-        const token = localStorage.getItem('access_token');
         const documentsArray = formData.documents.split(',').map(d => d.trim()).filter(d => d);
 
         if (!formData.country || !formData.visa_type || documentsArray.length === 0) {
@@ -126,50 +115,27 @@ const VisaKnowledgeManagement = () => {
         };
 
         try {
-            let res;
             if (modalMode === 'add') {
-                res = await fetch('http://localhost:8000/visa', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify(body)
-                });
+                await api.post('/visa', body);
             } else {
-                res = await fetch(`http://localhost:8000/visa/${selectedVisa._id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify(body)
-                });
+                await api.put(`/visa/${selectedVisa._id}`, body);
             }
-
-            if (res.ok) {
-                showToast(modalMode === 'add' ? 'Visa requirement added successfully' : 'Visa requirement updated successfully');
-                setShowModal(false);
-                fetchVisas();
-            } else {
-                showToast('Failed to save visa requirement', 'error');
-            }
+            showToast(modalMode === 'add' ? 'Visa requirement added successfully' : 'Visa requirement updated successfully');
+            setShowModal(false);
+            fetchVisas();
         } catch (err) {
-            showToast('Error saving visa requirement', 'error');
+            showToast('Failed to save visa requirement', 'error');
         }
     };
 
     const handleDelete = async () => {
-        const token = localStorage.getItem('access_token');
         try {
-            const res = await fetch(`http://localhost:8000/visa/${selectedVisa._id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (res.ok) {
-                showToast('Visa requirement deleted successfully');
-                setShowModal(false);
-                fetchVisas();
-            } else {
-                showToast('Failed to delete visa requirement', 'error');
-            }
+            await api.del(`/visa/${selectedVisa._id}`);
+            showToast('Visa requirement deleted successfully');
+            setShowModal(false);
+            fetchVisas();
         } catch (err) {
-            showToast('Error deleting visa requirement', 'error');
+            showToast('Failed to delete visa requirement', 'error');
         }
     };
 
@@ -195,11 +161,11 @@ const VisaKnowledgeManagement = () => {
                         </div>
                     </div>
                     <nav className="flex-1 px-4 space-y-1">
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white transition-all group" to="/admin-dashboard-overview">
+                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white transition-all group" to={ROUTES.ADMIN_DASHBOARD}>
                             <span className="material-symbols-outlined text-xl">dashboard</span>
-                            <span className="font-medium">Dashboard</span>
+                            <span className="font-medium">{L.DASHBOARD}</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 text-primary border border-primary/20 shadow-[0_4px_14px_0_rgba(13,204,242,0.1)] transition-all" to="/visa-knowledge-management">
+                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 text-primary border border-primary/20 shadow-[0_4px_14px_0_rgba(13,204,242,0.1)] transition-all" to={ROUTES.KNOWLEDGE_MGMT}>
                             <span className="material-symbols-outlined text-xl">database</span>
                             <span className="font-medium text-slate-100">Knowledge Base</span>
                         </Link>
@@ -207,7 +173,7 @@ const VisaKnowledgeManagement = () => {
                             <span className="material-symbols-outlined text-xl">group</span>
                             <span className="font-medium">User Management</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white transition-all" to="/activity-logs">
+                        <Link className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white transition-all" to={ROUTES.ACTIVITY_LOGS}>
                             <span className="material-symbols-outlined text-xl">receipt_long</span>
                             <span className="font-medium">Logs & Audits</span>
                         </Link>
@@ -216,23 +182,23 @@ const VisaKnowledgeManagement = () => {
                         </div>
                         <Link className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white transition-all" to="/">
                             <span className="material-symbols-outlined text-xl">settings</span>
-                            <span className="font-medium">Settings</span>
+                            <span className="font-medium">{L.SETTINGS}</span>
                         </Link>
                         <Link className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white transition-all" to="/">
                             <span className="material-symbols-outlined text-xl">help</span>
-                            <span className="font-medium">Support</span>
+                            <span className="font-medium">{L.SUPPORT}</span>
                         </Link>
                     </nav>
                     <div className="p-6 border-t border-slate-800">
                         <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/50 border border-slate-800">
                             <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-slate-800">
-                                <img alt="User Avatar" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAKrsgcRix7gP94Prz2poYFYjqLVRVjo23gf-F0D1XRJ7OeW2yvY0yJNDctpmzvqohaG3-x_-hmNfkuIU0pBhl4shDoiCvaAsXC1oecmgYzVeP494922ArEcbr5ukP0uUIgLhq5Q6XECsANUabLGYeI7PnqTntnJ22puHPNxCQeOOonLfO1asrt5PrUOvQdl1B1SIZrtZRo-B3SAiD2z-RHSt8ywJ09_jyymYLIgcJ4Y5I4IdMtUZ1P4TbLkC5-Tzeg7npNtOeEnnnS" />
+                                <img alt="User Avatar" className="w-full h-full object-cover" src="https://i.pravatar.cc/150?u=VisaKnowledgeManagement" />
                             </div>
                             <div className="overflow-hidden">
                                 <p className="text-sm font-semibold truncate">Admin User</p>
                                 <p className="text-xs text-slate-500 truncate">Administrator</p>
                             </div>
-                            <span onClick={() => localStorage.removeItem('access_token') || navigate('/login')} className="material-symbols-outlined text-slate-500 ml-auto cursor-pointer hover:text-primary">logout</span>
+                            <span onClick={() => { localStorage.removeItem('access_token'); window.location.href = '/login'; }} className="material-symbols-outlined text-slate-500 ml-auto cursor-pointer hover:text-primary">logout</span>
                         </div>
                     </div>
                 </aside>
@@ -247,10 +213,7 @@ const VisaKnowledgeManagement = () => {
                                 <span className="material-symbols-outlined text-sm">notifications</span>
                                 <span className="text-xs font-semibold">{visas.length} Requirements</span>
                             </div>
-                            <button onClick={openAddModal} className="bg-primary hover:bg-primary/90 text-background-dark font-bold py-2 px-4 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-primary/20">
-                                <span className="material-symbols-outlined text-[20px]">add</span>
-                                New Requirement
-                            </button>
+                            <Button variant="primary" icon="add" onClick={openAddModal}>New Requirement</Button>
                         </div>
                     </header>
                     <div className="p-8 space-y-8 max-w-[1600px] mx-auto w-full">
@@ -307,10 +270,9 @@ const VisaKnowledgeManagement = () => {
                                     {visaTypes.map(t => <option key={t} value={t}>{t}</option>)}
                                 </select>
                                 {hasActiveFilters && (
-                                    <button onClick={clearFilters} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-100 px-4 py-3 rounded-xl flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-[20px]">clear</span>
+                                    <Button variant="ghost" icon="clear" onClick={clearFilters} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-100 px-4 py-3 rounded-xl">
                                         Clear Filters
-                                    </button>
+                                    </Button>
                                 )}
                             </div>
                         </div>
@@ -337,14 +299,12 @@ const VisaKnowledgeManagement = () => {
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-2">
-                                                <button onClick={() => openEditModal(visa)} className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg flex items-center justify-center text-slate-300 transition-colors">
-                                                    <span className="material-symbols-outlined text-[20px]">edit</span>
-                                                    <span className="ml-1 text-sm">Edit</span>
-                                                </button>
-                                                <button onClick={() => openDeleteModal(visa)} className="bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 py-2 rounded-lg flex items-center justify-center text-slate-300 transition-colors">
-                                                    <span className="material-symbols-outlined text-[20px]">delete</span>
-                                                    <span className="ml-1 text-sm">Delete</span>
-                                                </button>
+                                                <Button variant="ghost" icon="edit" onClick={() => openEditModal(visa)} className="bg-slate-800 hover:bg-slate-700 text-slate-300">
+                                                    {L.EDIT}
+                                                </Button>
+                                                <Button variant="danger" icon="delete" onClick={() => openDeleteModal(visa)} className="bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 text-slate-300">
+                                                    {L.DELETE}
+                                                </Button>
                                             </div>
                                         </div>
                                     </div>
@@ -378,17 +338,15 @@ const VisaKnowledgeManagement = () => {
                                 {modalMode === 'edit' && 'Edit Visa Requirement'}
                                 {modalMode === 'delete' && 'Delete Visa Requirement'}
                             </h3>
-                            <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">
-                                <span className="material-symbols-outlined">close</span>
-                            </button>
+                            <Button variant="icon" icon="close" onClick={() => setShowModal(false)} />
                         </div>
                         <div className="p-6">
                             {modalMode === 'delete' ? (
                                 <div className="text-center">
                                     <p className="text-slate-300 mb-6">Are you sure you want to delete <strong className="text-white">{selectedVisa?.country} - {selectedVisa?.visa_type}</strong>? This action cannot be undone.</p>
                                     <div className="flex gap-4 justify-center">
-                                        <button onClick={() => setShowModal(false)} className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors">Cancel</button>
-                                        <button onClick={handleDelete} className="px-6 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 transition-colors">Delete</button>
+                                        <Button variant="ghost" onClick={() => setShowModal(false)} className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600">{L.CANCEL}</Button>
+                                        <Button variant="danger" onClick={handleDelete} className="px-6 py-2 rounded-lg">{L.DELETE}</Button>
                                     </div>
                                 </div>
                             ) : (
@@ -410,10 +368,10 @@ const VisaKnowledgeManagement = () => {
                                         <input type="text" value={formData.processing_time} onChange={(e) => setFormData({...formData, processing_time: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder:text-slate-500" placeholder="e.g., 3-5 weeks" />
                                     </div>
                                     <div className="flex gap-4 justify-end pt-4">
-                                        <button onClick={() => setShowModal(false)} className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors">Cancel</button>
-                                        <button onClick={handleSubmit} className="px-6 py-2 rounded-lg bg-primary hover:bg-primary/90 text-background-dark font-bold transition-colors">
-                                            {modalMode === 'add' ? 'Add Requirement' : 'Save Changes'}
-                                        </button>
+                                        <Button variant="ghost" onClick={() => setShowModal(false)} className="px-6 py-2 rounded-lg bg-slate-700 hover:bg-slate-600">{L.CANCEL}</Button>
+                                        <Button variant="primary" onClick={handleSubmit} className="px-6 py-2 rounded-lg">
+                                            {modalMode === 'add' ? 'Add Requirement' : L.SAVE}
+                                        </Button>
                                     </div>
                                 </div>
                             )}
