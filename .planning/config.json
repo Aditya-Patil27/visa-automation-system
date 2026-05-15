@@ -1,0 +1,23 @@
+{
+  "project": "Visa Automation System",
+  "created": "2026-05-14",
+  "workflow": {
+    "research_enabled": true,
+    "plan_checker_enabled": true,
+    "commit_docs": true,
+    "text_mode": false,
+    "mvp_mode": false,
+    "discuss_mode": "discuss",
+    "pattern_mapper": true,
+    "nyquist_validation_enabled": false,
+    "ui_phase": true,
+    "ui_safety_gate": true,
+    "security_enforcement": false,
+    "post_planning_gaps": true
+  },
+  "models": {
+    "researcher_model": "default",
+    "planner_model": "default",
+    "checker_model": "default"
+  }
+}

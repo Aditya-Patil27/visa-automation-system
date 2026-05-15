@@ -1,11 +1,10 @@
 fastapi
 uvicorn[standard]
+slowapi
 pydantic
 pydantic-settings
 python-jose[cryptography]
 passlib[bcrypt]
-sqlalchemy[asyncio]
-aiosqlite
 langchain
 langchain-community
 langchain-groq
@@ -17,3 +16,10 @@ sentence-transformers
 cryptography
 bcrypt
 email-validator
+redis
+
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+
+motor

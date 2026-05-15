@@ -1,13 +1,19 @@
+import os
 from datetime import datetime, timedelta
 from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"))
 
 import bcrypt
-from jose import JWTError, jwt
+from jose import JWTError, jwt, ExpiredSignatureError
 
-# Secret key for JWT signing; in production load from env
-SECRET_KEY = "supersecretkey"
+SECRET_KEY = os.getenv("JWT_SECRET", "")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET environment variable is required.")
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "30"))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -37,5 +43,7 @@ def decode_access_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
+    except ExpiredSignatureError:
+        return None
     except JWTError:
         return None

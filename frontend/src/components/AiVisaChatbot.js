@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const AiVisaChatbot = () => {
     const [messages, setMessages] = useState([
@@ -13,6 +17,12 @@ const AiVisaChatbot = () => {
         "Cost of Tourist Visa",
         "Interview tips",
     ]);
+    const [eligibilityMode, setEligibilityMode] = useState(false);
+    const [eligibilityData, setEligibilityData] = useState({
+        travel_purpose: '', duration_days: '', country: '',
+        nationality: '', has_passport: true, has_prior_visa: false,
+        criminal_record: false, has_ties: true
+    });
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
     const navigate = useNavigate();
@@ -29,8 +39,62 @@ const AiVisaChatbot = () => {
         const textToSend = overrideText || input;
         if (!textToSend.trim()) return;
         if (!overrideText) setInput('');
+
+        if (eligibilityMode) {
+            const key = Object.keys(eligibilityData).find(k => !eligibilityData[k] && k !== 'has_passport' && k !== 'has_prior_visa' && k !== 'criminal_record' && k !== 'has_ties');
+            if (key && textToSend.trim()) {
+                const newData = { ...eligibilityData, [key]: textToSend.trim() };
+                setEligibilityData(newData);
+                if (newData.country && newData.travel_purpose) {
+                    setLoading(true);
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const res = await fetch('http://localhost:8000/eligibility', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                            body: JSON.stringify({
+                                travel_purpose: newData.travel_purpose,
+                                duration_days: newData.duration_days ? parseInt(newData.duration_days) : null,
+                                country: newData.country,
+                                nationality: newData.nationality || null,
+                                has_passport: newData.has_passport,
+                                has_prior_visa: newData.has_prior_visa,
+                                criminal_record: newData.criminal_record,
+                                has_ties: newData.has_ties
+                            })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            const status = data.eligible ? "✅ PRELIMINARY ELIGIBLE" : "⚠️ PRELIMINARY NOT ELIGIBLE";
+                            const response = `${status}\n\nVisa Type: ${data.visa_type}\nConfidence: ${Math.round(data.confidence * 100)}%\n\nRequirements Met:\n${data.requirements_met?.join('\n') || 'None listed'}\n\nRequirements Missing:\n${data.requirements_missing?.join('\n') || 'None'}\n\n${data.notes ? `Notes: ${data.notes}` : ''}`;
+                            setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+                        } else {
+                            setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error while checking your eligibility." }]);
+                        }
+                    } catch (err) {
+                        setMessages(prev => [...prev, { role: 'assistant', content: "Network error. Please try again later." }]);
+                    } finally {
+                        setLoading(false);
+                        setEligibilityMode(false);
+                        setEligibilityData({ travel_purpose: '', duration_days: '', country: '', nationality: '', has_passport: true, has_prior_visa: false, criminal_record: false, has_ties: true });
+                    }
+                    return;
+                }
+                const nextQuestion = key === 'travel_purpose' ? "What is your destination country?" : key === 'country' ? "How long do you plan to stay (in days)?" : key === 'duration_days' ? "What is your nationality?" : "";
+                setMessages(prev => [...prev, { role: 'assistant', content: nextQuestion }]);
+                return;
+            }
+        }
+
+        if (textToSend.toLowerCase().includes('check my eligibility') || textToSend.toLowerCase().includes('eligibility')) {
+            setEligibilityMode(true);
+            setEligibilityData({ travel_purpose: '', duration_days: '', country: '', nationality: '', has_passport: true, has_prior_visa: false, criminal_record: false, has_ties: true });
+            setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
+            setMessages(prev => [...prev, { role: 'assistant', content: "I'll help you check your visa eligibility. What is your travel purpose? (tourism, business, work, study, or transit)" }]);
+            return;
+        }
+
         setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
-        // Add empty assistant message placeholder before streaming begins
         setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
         setLoading(true);
 
@@ -218,49 +282,40 @@ const AiVisaChatbot = () => {
                         <h1 className="text-xl font-bold tracking-tight">VisaAI</h1>
                     </div>
                     <div className="px-4 mb-4">
-                        <button onClick={() => { setMessages([{ role: 'assistant', content: "Hello! I'm your dedicated VisaAI assistant. What's your next destination?" }]); setInput(''); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/20 transition-all text-primary font-medium">
-                            <span className="material-symbols-outlined text-xl">add_circle</span>
-                            New Consultation
-                        </button>
+                        <Button variant="secondary" className="w-full justify-start" icon="add_circle"
+                            onClick={() => { setMessages([{ role: 'assistant', content: "Hello! I'm your dedicated VisaAI assistant. What's your next destination?" }]); setInput(''); }}>
+                            {L.NEW_CONSULTATION}
+                        </Button>
                     </div>
                     <nav className="flex-1 overflow-y-auto px-4 space-y-6">
                         <div>
                             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 px-2">History</h3>
                             <div className="space-y-1">
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/5 text-primary border border-primary/10" to="#!">
+                                <Button variant="nav" className="bg-primary/5 text-primary border border-primary/10" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
                                     <span className="text-sm truncate">General Visa Requirements</span>
-                                </Link>
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
+                                </Button>
+                                <Button variant="nav" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
                                     <span className="text-sm truncate">Schengen Eligibility Check</span>
-                                </Link>
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
+                                </Button>
+                                <Button variant="nav" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
                                     <span className="text-sm truncate">US B1/B2 Interview Prep</span>
-                                </Link>
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
+                                </Button>
+                                <Button variant="nav" onClick={() => {}}>
                                     <span className="material-symbols-outlined text-xl">chat_bubble</span>
                                     <span className="text-sm truncate">Digital Nomad Portugal</span>
-                                </Link>
-                            </div>
-                        </div>
-                        <div>
-                            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 px-2">Saved Documents</h3>
-                            <div className="space-y-1">
-                                <Link className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-200 dark:hover:bg-primary/5 text-slate-600 dark:text-slate-300 transition-colors" to="#!">
-                                    <span className="material-symbols-outlined text-xl">description</span>
-                                    <span className="text-sm">Visa Checklist.pdf</span>
-                                </Link>
+                                </Button>
                             </div>
                         </div>
                         <div className="mt-8">
-                            <Link to="/user-dashboard" className="text-xs font-medium text-slate-400 hover:text-primary">&larr; Back to Dashboard</Link>
+                            <Button variant="ghost" size="sm" to={ROUTES.USER_DASHBOARD}>&larr; {L.DASHBOARD}</Button>
                         </div>
                     </nav>
                     <div className="p-4 border-t border-slate-200 dark:border-primary/10">
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100 dark:bg-primary/5">
-                            <img className="w-10 h-10 rounded-full object-cover" alt="User profile avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRF1GzJnjIbh-lJcyj-OR0a4il3OEdbwczXBJASqvW5kqO0pG404ru_EBtsFGKcipD6cKSCxhlACKGJczifY-Ar_djTMOahe0VAbLjaa8jB1wo6sCuR35J5kkDYzi28umYwBXK3TndSBGKfunjv1a_b7uZOlcwbzr3iOaF3os0XiopbgA-XzccPFZMmMZtv9GPp9MMLfw9wXhu_oVetkO_uN0SLca_xvJoj4W70dm4oYcWm3HYdu3xcGUYL4v19UXYiQ0Ao03s2CHK" />
+                            <img className="w-10 h-10 rounded-full object-cover" alt="User profile avatar" src="https://i.pravatar.cc/150?u=AiVisaChatbot" />
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold truncate">Alex Johnson</p>
                                 <p className="text-xs text-slate-500 dark:text-primary/60">Premium Member</p>
@@ -279,17 +334,25 @@ const AiVisaChatbot = () => {
                     <header className="h-16 border-b border-slate-200 dark:border-primary/10 flex items-center justify-between px-8 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md z-10">
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Consultation:</span>
-                            <span className="text-sm font-bold">Standard Tourist Visa</span>
+                            {eligibilityMode ? (
+                                <span className="text-sm font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                    <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
+                                    Eligibility Check
+                                </span>
+                            ) : (
+                                <span className="text-sm font-bold">Standard Tourist Visa</span>
+                            )}
                         </div>
                         <div className="flex items-center gap-4">
-                            <button onClick={handleShare} className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary transition-colors">
+                            {eligibilityMode && (
+                                <button onClick={() => { setEligibilityMode(false); setMessages(prev => [...prev, { role: 'assistant', content: "Eligibility check cancelled. How else can I help you?" }]); }} className="text-xs text-red-500 hover:text-red-600 font-medium">Cancel</button>
+                            )}
+                            <button className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-primary transition-colors">
                                 <span className="material-symbols-outlined text-lg">share</span>
                                 Share
                             </button>
                             <div className="h-4 w-[1px] bg-slate-200 dark:bg-primary/20"></div>
-                            <button onClick={() => navigate('/register')} className="bg-primary text-background-dark text-sm font-bold px-4 py-1.5 rounded-lg hover:opacity-90 transition-all">
-                                Upgrade
-                            </button>
+                            <Button size="sm" to={ROUTES.REGISTER}>{L.UPGRADE}</Button>
                         </div>
                     </header>
                     {/* Chat Window */}
@@ -332,15 +395,10 @@ const AiVisaChatbot = () => {
                     <footer className="p-8 z-10 relative">
                         {/* Suggested Chips */}
                         <div className="flex flex-wrap gap-2 mb-6 max-w-4xl mx-auto justify-center">
-                            {suggestionChips.map((chip, idx) => (
-                                <button
-                                    key={idx}
-                                    onClick={() => handleChipClick(chip)}
-                                    className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all"
-                                >
-                                    {chip}
-                                </button>
-                            ))}
+                            <button onClick={() => setInput('What documents do I need for France?')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">What documents do I need for France?</button>
+                            <button onClick={() => { setEligibilityMode(true); setEligibilityData({ travel_purpose: '', duration_days: '', country: '', nationality: '', has_passport: true, has_prior_visa: false, criminal_record: false, has_ties: true }); setMessages(prev => [...prev, { role: 'assistant', content: "I'll help you check your visa eligibility. What is your travel purpose? (tourism, business, work, study, or transit)" }]); }} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">Check my eligibility</button>
+                            <button onClick={() => setInput('Cost of UK Visa')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">Cost of UK Visa</button>
+                            <button onClick={() => setInput('Interview tips')} className="px-4 py-2 rounded-full border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-all">Interview tips</button>
                         </div>
                         {/* Input Container */}
                         <div className="max-w-4xl mx-auto bg-background-dark/70 backdrop-blur-xl border border-primary/10 p-2 rounded-2xl shadow-2xl flex items-center gap-2">

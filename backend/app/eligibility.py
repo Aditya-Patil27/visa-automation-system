@@ -5,6 +5,7 @@ Per AI-SPEC §4b.1: Uses ChatGroq.with_structured_output() for structured LLM ou
 Per T-02-02-05: Falls back to deterministic-only result if LLM fails.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -54,10 +55,10 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
 
     # ── Step 1: Deterministic rules (mandatory, runs first) ──────────────
     visa_req = {
-        "min_age": visa_record.min_age or 0,
-        "max_age": visa_record.max_age,
-        "min_balance": visa_record.min_balance or 0,
-        "allowed_purposes": visa_record.get_allowed_purposes(),
+        "min_age": visa_record.get("min_age") or 0,
+        "max_age": visa_record.get("max_age"),
+        "min_balance": visa_record.get("min_balance") or 0,
+        "allowed_purposes": visa_record.get("allowed_purposes", ["tourism"]),
     }
 
     rule_results = evaluate_all(assessment_data, visa_req)
@@ -80,14 +81,14 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
         )
         # Step 3 — Deterministic failure: return detailed breakdown with alternative visas
         alt_visas = await get_alternative_visas(
-            visa_record.get_alternative_visa_ids()
-        ) if hasattr(visa_record, 'get_alternative_visa_ids') else []
+            visa_record.get("alternative_visa_ids", [])
+        )
 
         return {
             "overall_eligible": False,
             "score": score,
-            "visa_type": visa_record.visa_type,
-            "country": visa_record.country,
+            "visa_type": visa_record.get("visa_type", ""),
+            "country": visa_record.get("country", ""),
             "matched_requirements": passed_rules,
             "missing_requirements": [
                 f"{k}: {v['detail']}" for k, v in rule_checks.items() if not v["passed"]
@@ -115,8 +116,8 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
         ).with_structured_output(EligibilityAssessment)
 
         prompt = (
-            f"Assess visa eligibility for {assessment_data.get('destination_country', visa_record.country)} "
-            f"{visa_record.visa_type} visa.\n"
+            f"Assess visa eligibility for {assessment_data.get('destination_country', visa_record.get('country', ''))} "
+            f"{visa_record.get('visa_type', '')} visa.\n"
             f"Applicant: age={assessment_data.get('age')}, "
             f"bank_balance=${assessment_data.get('bank_balance', 0):,.0f}, "
             f"purpose={assessment_data.get('purpose')}\n"
@@ -126,15 +127,17 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
             f"Deterministic results: all passed"
         )
 
-        llm_result = await structured_llm.ainvoke(prompt)
+        llm_result = await asyncio.wait_for(
+            structured_llm.ainvoke(prompt), timeout=15.0
+        )
 
         if isinstance(llm_result, EligibilityAssessment):
             logger.info("LLM structured output succeeded (confidence=%.2f)", llm_result.confidence)
             return {
                 "overall_eligible": llm_result.overall_eligible,
                 "score": llm_result.confidence,
-                "visa_type": llm_result.visa_type or visa_record.visa_type,
-                "country": llm_result.country or visa_record.country,
+                "visa_type": llm_result.visa_type or visa_record.get("visa_type", ""),
+                "country": llm_result.country or visa_record.get("country", ""),
                 "matched_requirements": list(set(llm_result.matched_requirements + passed_rules)),
                 "missing_requirements": llm_result.missing_requirements,
                 "actionable_feedback": llm_result.actionable_feedback,
@@ -152,8 +155,8 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
     return {
         "overall_eligible": True,
         "score": score,
-        "visa_type": visa_record.visa_type,
-        "country": visa_record.country,
+        "visa_type": visa_record.get("visa_type", ""),
+        "country": visa_record.get("country", ""),
         "matched_requirements": passed_rules,
         "missing_requirements": [],
         "actionable_feedback": [],
@@ -163,48 +166,206 @@ async def assess_eligibility(assessment_data: dict, visa_record) -> dict:
     }
 
 
-async def get_alternative_visas(alternative_visa_ids: list, session=None) -> list:
-    """Look up alternative visa suggestions by ID from VisaTable.
-
-    Per D-17: Rules-based approach using predefined alternative_visa_ids
-    on the VisaRecord (NOT LLM-generated). Returns list of dicts with
-    id, country, visa_type, description for each alternative.
-    Per D-18: Enhanced with LLM reasoning in a later iteration — deferred.
-
-    Returns empty list if no alternatives found or any error occurs.
-    """
+async def get_alternative_visas(alternative_visa_ids: list) -> list:
+    """Look up alternative visa suggestions by ID from MongoDB."""
     if not alternative_visa_ids:
         return []
 
-    from sqlalchemy import select
-    from .models import VisaTable
+    from bson.objectid import ObjectId
+    from .database import get_database
+    from .models import COLL_VISAS
+
+    ids = [ObjectId(v) for v in alternative_visa_ids if isinstance(v, str) and len(v) == 24]
+    if not ids:
+        return []
 
     try:
-        if session is None:
-            from .database import async_session
-            async with async_session() as local_session:
-                result = await local_session.execute(
-                    select(VisaTable).where(VisaTable.id.in_(alternative_visa_ids))
-                )
-                rows = result.scalars().all()
-        else:
-            result = await session.execute(
-                select(VisaTable).where(VisaTable.id.in_(alternative_visa_ids))
-            )
-            rows = result.scalars().all()
-
+        db = get_database()
+        cursor = db[COLL_VISAS].find({"_id": {"$in": ids}})
+        rows = await cursor.to_list(length=len(ids))
         return [
             {
-                "id": row.id,
-                "country": row.country,
-                "visa_type": row.visa_type,
-                "description": row.description or f"{row.visa_type} for {row.country}",
-                "processing_time": row.processing_time,
-                "fee": row.fee,
+                "id": str(r["_id"]),
+                "country": r.get("country", ""),
+                "visa_type": r.get("visa_type", ""),
+                "description": r.get("description") or f"{r.get('visa_type', '')} for {r.get('country', '')}",
+                "processing_time": r.get("processing_time"),
+                "fee": r.get("fee"),
             }
-            for row in rows
+            for r in rows
         ]
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning(f"Failed to get alternative visas: {e}")
+        logging.getLogger(__name__).warning("Failed to get alternative visas: %s", e)
         return []
+
+
+# ── Conversational eligibility (remote-enhanced, RAG+LLM based) ────────────
+
+from pydantic import BaseModel as _BM
+
+
+class ConversationalEligibilityContext(_BM):
+    travel_purpose: str
+    duration_days: Optional[int] = None
+    country: str
+    nationality: Optional[str] = None
+    has_passport: bool = True
+    has_prior_visa: bool = False
+    criminal_record: bool = False
+    has_ties: bool = True
+
+
+class ConversationalEligibilityResult(_BM):
+    eligible: bool
+    visa_type: str
+    confidence: float
+    requirements_met: List[str]
+    requirements_missing: List[str]
+    processing_time: Optional[str] = None
+    estimated_cost: Optional[str] = None
+    notes: str
+
+
+async def conversational_assess_eligibility(context: ConversationalEligibilityContext) -> ConversationalEligibilityResult:
+    from .rag import load_vectorstore
+    from langchain_groq import ChatGroq
+
+    vs = load_vectorstore()
+    query = f"{context.country} {context.travel_purpose} visa eligibility requirements"
+    docs = vs.similarity_search(query, k=5)
+
+    if not docs or not docs[0].page_content.strip():
+        return ConversationalEligibilityResult(
+            eligible=False, visa_type="Unknown", confidence=0.0,
+            requirements_met=[], requirements_missing=["Could not find eligibility information"],
+            notes="Unable to assess eligibility. Contact an administrator to add visa information."
+        )
+
+    context_text = "\n".join([doc.page_content for doc in docs])
+    prompt = f"""You are a visa eligibility assessment expert. Based on the user's travel context and the visa knowledge base, determine if they are likely eligible for a visa.
+
+User Context:
+- Destination Country: {context.country}
+- Travel Purpose: {context.travel_purpose}
+- Duration: {context.duration_days} days if specified
+- Nationality: {context.nationality if context.nationality else 'Not specified'}
+- Has valid passport: {context.has_passport}
+- Has prior visa: {context.has_prior_visa}
+- Criminal record: {context.criminal_record}
+- Has ties to home country: {context.has_ties}
+
+Knowledge Base Information:
+{context_text}
+
+Based on this information, provide a structured eligibility assessment. Consider:
+1. Visa type they should apply for
+2. Whether they meet basic eligibility criteria
+3. What documents they would need
+4. Estimated processing time
+
+Return your assessment in this format:
+- ELIGIBLE: YES or NO
+- VISA_TYPE: [specific visa type]
+- CONFIDENCE: [0-1 scale]
+- REQUIREMENTS_MET: [list of requirements user likely meets]
+- REQUIREMENTS_MISSING: [list of requirements user likely needs]
+- PROCESSING_TIME: [estimated time if known]
+- ESTIMATED_COST: [estimated cost if known]
+- NOTES: [any important notes or warnings]
+
+If you cannot determine eligibility with confidence, state so clearly."""
+
+    from .rag import _get_settings
+    settings = _get_settings()
+    llm = ChatGroq(groq_api_key=settings.groq_api_key, model_name="llama-3.1-8b-instant", temperature=0.3)
+
+    try:
+        response = await llm.ainvoke(prompt)
+        response_text = response.content if hasattr(response, 'content') else str(response)
+    except Exception as e:
+        return ConversationalEligibilityResult(
+            eligible=False, visa_type="Unknown", confidence=0.0,
+            requirements_met=[], requirements_missing=["Error during assessment"],
+            notes=f"Assessment failed: {str(e)}"
+        )
+
+    return _parse_conversational_result(response_text, context)
+
+
+def _parse_conversational_result(response: str, context: ConversationalEligibilityContext) -> ConversationalEligibilityResult:
+    lines = response.split('\n')
+    eligible = False
+    visa_type = "Standard Visa"
+    confidence = 0.5
+    requirements_met = []
+    requirements_missing = []
+    processing_time = None
+    estimated_cost = None
+    notes = ""
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith("ELIGIBLE:"):
+            eligible = "YES" in line.upper()
+        elif line.startswith("VISA_TYPE:"):
+            visa_type = line.replace("VISA_TYPE:", "").strip()
+        elif line.startswith("CONFIDENCE:"):
+            try:
+                confidence = float(line.replace("CONFIDENCE:", "").strip())
+            except ValueError:
+                confidence = 0.5
+        elif line.startswith("REQUIREMENTS_MET:"):
+            requirements_met = [r.strip() for r in line.replace("REQUIREMENTS_MET:", "").split(",") if r.strip()]
+        elif line.startswith("REQUIREMENTS_MISSING:"):
+            requirements_missing = [r.strip() for r in line.replace("REQUIREMENTS_MISSING:", "").split(",") if r.strip()]
+        elif line.startswith("PROCESSING_TIME:"):
+            processing_time = line.replace("PROCESSING_TIME:", "").strip()
+        elif line.startswith("ESTIMATED_COST:"):
+            estimated_cost = line.replace("ESTIMATED_COST:", "").strip()
+        elif line.startswith("NOTES:"):
+            notes = line.replace("NOTES:", "").strip()
+
+    if context.criminal_record:
+        eligible = False
+        notes = "A criminal record may affect visa eligibility. Additional scrutiny likely required."
+        requirements_missing.append("Criminal background clearance certificate")
+
+    if not context.has_passport:
+        eligible = False
+        requirements_missing.append("Valid passport")
+
+    if not requirements_met and not requirements_missing:
+        if context.travel_purpose.lower() in ["tourism", "business"]:
+            requirements_met = ["Valid passport", "Proof of accommodation", "Return ticket"]
+            requirements_missing = ["Financial proof", "Travel insurance"]
+        elif context.travel_purpose.lower() == "work":
+            requirements_met = ["Valid passport"]
+            requirements_missing = ["Employment letter", "Work permit", "Financial proof"]
+        elif context.travel_purpose.lower() == "study":
+            requirements_met = ["Valid passport"]
+            requirements_missing = ["Acceptance letter", "Financial proof", "Student visa"]
+
+    return ConversationalEligibilityResult(
+        eligible=eligible, visa_type=visa_type, confidence=confidence,
+        requirements_met=requirements_met, requirements_missing=requirements_missing,
+        processing_time=processing_time, estimated_cost=estimated_cost, notes=notes
+    )
+
+
+async def conversational_get_status(user_email: str) -> Optional[dict]:
+    from .database import get_database
+    db = get_database()
+    result = await db.eligibility_assessments.find_one({"user_email": user_email})
+    if result:
+        result["_id"] = str(result["_id"])
+    return result
+
+
+async def conversational_save_assessment(user_email: str, context: ConversationalEligibilityContext, result: ConversationalEligibilityResult):
+    from .database import get_database
+    from datetime import datetime
+    db = get_database()
+    assessment_doc = {"user_email": user_email, "context": context.dict(), "result": result.dict(), "assessed_at": datetime.utcnow().isoformat()}
+    await db.eligibility_assessments.insert_one(assessment_doc)
+    return {"saved": True, "assessment_id": str(assessment_doc.get("_id", "unknown"))}

@@ -9,5 +9,9 @@ node_modules/
 build/
 .env
 
-# Planning docs (local-only)
+# GSD Planning (do not commit)
 .planning/
+
+# Internal Docs
+VAS SRS.md
+project_purpose.md

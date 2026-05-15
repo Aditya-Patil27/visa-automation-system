@@ -1,6 +1,9 @@
 import json
 import os
+import logging
 from typing import List, Tuple, AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -77,24 +80,6 @@ def semantic_search(question: str, k: int = 5) -> List[dict]:
         for doc, score in results
         if doc.page_content.strip()
     ]
-
-
-# ── Chat handler (async, cached) ────────────────────────────────────────
-# DEPRECATED: Use RAGChatService.invoke() instead. Kept for backward
-# compatibility with existing /chat endpoint until full migration.
-async def handle_query(question: str) -> str:
-    vs = load_vectorstore()
-    docs = vs.similarity_search(question, k=3)
-    context_text = "\n".join([doc.page_content for doc in docs])
-    settings = _get_settings()
-    llm = ChatGroq(
-        groq_api_key=settings.groq_api_key,
-        model_name="llama-3.1-8b-instant",
-        temperature=0.2,
-    )
-    prompt = f"Context:\n{context_text}\n\nQuestion: {question}\nAnswer:"
-    response = await llm.ainvoke(prompt)
-    return response.content
 
 
 # ── RAGChatService (LCEL chain with memory + streaming) ─────────────────
@@ -205,22 +190,26 @@ def index_documents(docs: List[str]):
 
 
 async def index_from_db():
-    """Load all visa descriptions from SQLite and index them."""
-    from sqlalchemy import select
-    from .database import async_session
-    from .models import VisaTable
+    """Load all visa descriptions from MongoDB and index them into FAISS."""
+    from .database import get_database
+    from .models import COLL_VISAS
 
-    async with async_session() as session:
-        result = await session.execute(select(VisaTable))
-        rows = result.scalars().all()
-
+    db = get_database()
+    cursor = db[COLL_VISAS].find()
     docs = []
-    for row in rows:
-        doc_list = row.get_documents()
+    async for doc in cursor:
+        country = doc.get('country', '')
+        visa_type = doc.get('visa_type', '')
         desc = (
-            f"Country: {row.country}\nType: {row.visa_type}\n"
-            f"Docs: {', '.join(doc_list)}\nTime: {row.processing_time or ''}"
+            f"Country: {country}\nType: {visa_type}\n"
+            f"Docs: {', '.join(doc.get('documents', []))}\n"
+            f"Time: {doc.get('processing_time', '')}"
         )
-        docs.append(desc)
+        docs.append((desc, {"country": country, "visa_type": visa_type, "source": f"{country} {visa_type}"}))
+
     if docs:
-        index_documents(docs)
+        texts = [d[0] for d in docs]
+        metadatas = [d[1] for d in docs]
+        vs = load_vectorstore()
+        vs.add_texts(texts, metadatas=metadatas)
+        vs.save_local(Settings().faiss_index_path)
