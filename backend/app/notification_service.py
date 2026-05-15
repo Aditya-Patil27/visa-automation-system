@@ -5,11 +5,14 @@ Provides email (SMTP/SendGrid) and SMS (Twilio) notification support.
 """
 
 import os
+import logging
 from typing import Optional, List, Dict
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, EmailStr
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationType(str, Enum):
@@ -100,7 +103,7 @@ async def send_email(
                 to_email, subject, body, settings
             )
         except Exception as e:
-            pass
+            logger.warning("SendGrid failed, falling back to SMTP: %s", e)
     
     # Fall back to SMTP
     if settings.smtp_user and settings.smtp_password:

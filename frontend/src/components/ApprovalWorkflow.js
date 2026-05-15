@@ -1,28 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const ApprovalWorkflow = () => {
     const [workflows, setWorkflows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const navigate = useNavigate();
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const token = localStorage.getItem('access_token');
-                if (!token) {
-                    navigate('/login');
-                    return;
-                }
-                const res = await fetch('http://localhost:8000/workflow', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setWorkflows(data);
-                } else {
-                    if (res.status === 401 || res.status === 403) navigate('/login');
-                }
+                const data = await api.get('/workflow');
+                setWorkflows(data);
             } catch (err) {
                 console.error("Failed to fetch workflow data:", err);
             } finally {
@@ -30,7 +21,7 @@ const ApprovalWorkflow = () => {
             }
         };
         fetchData();
-    }, [navigate]);
+    }, []);
 
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading pending workflows...</div>;
@@ -51,25 +42,25 @@ const ApprovalWorkflow = () => {
                         </div>
                     </div>
                     <nav className="flex-1 px-4 space-y-1">
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" to="/admin-dashboard">
+                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" to={ROUTES.ADMIN_DASHBOARD}>
                             <span className="material-symbols-outlined">dashboard</span>
-                            <span className="text-sm font-medium">Dashboard</span>
+                            <span className="text-sm font-medium">{L.DASHBOARD}</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 text-white bg-primary/10 border border-primary/20 rounded-lg transition-colors" to="/approval-workflow">
+                        <Link className="flex items-center gap-3 px-3 py-2 text-white bg-primary/10 border border-primary/20 rounded-lg transition-colors" to={ROUTES.APPROVAL_WORKFLOW}>
                             <span className="material-symbols-outlined text-primary">pending_actions</span>
                             <span className="text-sm font-medium">Pending Approvals</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" to="/scraper-monitoring-dashboard">
+                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" to={ROUTES.SCRAPER_MONITOR}>
                             <span className="material-symbols-outlined">data_exploration</span>
                             <span className="text-sm font-medium">Automation Logs</span>
                         </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" to="/activity-logs">
+                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" to={ROUTES.ACTIVITY_LOGS}>
                             <span className="material-symbols-outlined">history</span>
                             <span className="text-sm font-medium">Audit Reports</span>
                         </Link>
                         <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" to="/">
                             <span className="material-symbols-outlined">settings</span>
-                            <span className="text-sm font-medium">System Settings</span>
+                            <span className="text-sm font-medium">{L.SETTINGS}</span>
                         </Link>
                     </nav>
                     <div className="p-4 border-t border-slate-800">
@@ -95,9 +86,7 @@ const ApprovalWorkflow = () => {
                                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">search</span>
                                 <input className="bg-slate-900 border-slate-700 rounded-lg pl-9 pr-4 py-1.5 text-xs w-64 focus:ring-primary focus:border-primary" placeholder="Search updates..." type="text" />
                             </div>
-                            <button className="bg-slate-800 hover:bg-slate-700 px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors">
-                                <span className="material-symbols-outlined text-sm">filter_list</span> Filters
-                            </button>
+                            <Button variant="ghost" icon="filter_list">Filters</Button>
                         </div>
                     </header>
                     <div className="flex-1 flex overflow-hidden">
@@ -106,7 +95,7 @@ const ApprovalWorkflow = () => {
                             <div className="p-4 border-b border-slate-800 flex justify-between items-center">
                                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Pending Queue</h3>
                                 <div className="flex gap-1">
-                                    <button className="p-1 hover:bg-white/5 rounded"><span className="material-symbols-outlined text-sm">sort</span></button>
+                                    <Button variant="ghost" icon="sort" className="p-1" />
                                 </div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -220,16 +209,10 @@ const ApprovalWorkflow = () => {
                             </div>
                             {/* Floating Action Bar */}
                             <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900/90 border border-slate-700 backdrop-blur-xl p-3 rounded-2xl shadow-2xl z-20">
-                                <button className="bg-red-500/10 hover:bg-red-500/20 text-red-400 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all border border-red-500/30">
-                                    <span className="material-symbols-outlined text-sm">close</span> Reject
-                                </button>
-                                <button className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all border border-slate-600">
-                                    <span className="material-symbols-outlined text-sm">question_mark</span> Clarify
-                                </button>
+                                <Button variant="danger" icon="close">{L.REJECT}</Button>
+                                <Button variant="ghost" icon="question_mark">Clarify</Button>
                                 <div className="w-px h-8 bg-slate-700 mx-1"></div>
-                                <button className="bg-primary text-slate-950 hover:bg-primary/90 px-8 py-2 rounded-xl text-sm font-extrabold flex items-center gap-2 transition-all shadow-lg shadow-primary/20">
-                                    <span className="material-symbols-outlined text-sm">done_all</span> Approve Changes
-                                </button>
+                                <Button variant="primary" icon="done_all">{L.APPROVE}</Button>
                             </div>
                         </section>
                         {/* Right Column: Audit Trail */}

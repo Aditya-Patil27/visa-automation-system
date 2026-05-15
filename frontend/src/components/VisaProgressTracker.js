@@ -1,37 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import Button from './ui/Button';
+import SidebarNav from './ui/SidebarNav';
+import NotificationBell from './NotificationBell';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
+import { NAV_ITEMS_USER } from '../config/navigation';
 
 const VisaProgressTracker = () => {
     const [progressData, setProgressData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [showNotifications, setShowNotifications] = useState(false);
-    const navigate = useNavigate();
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const token = localStorage.getItem('access_token');
-                if (!token) {
-                    navigate('/login');
-                    return;
-                }
-                const res = await fetch('http://localhost:8000/progress', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setProgressData(data);
-                } else {
-                    if (res.status === 401 || res.status === 403) navigate('/login');
-                }
+                const data = await api.get('/progress');
+                setProgressData(data);
             } catch (err) {
+                if (err?.status === 401) return;
                 console.error("Failed to fetch progress data:", err);
             } finally {
                 setLoading(false);
             }
         };
         fetchData();
-    }, [navigate]);
+    }, []);
 
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading progress tracker...</div>;
@@ -55,46 +48,16 @@ const VisaProgressTracker = () => {
                         </div>
                         <h1 className="text-xl font-black tracking-tight text-primary">Visa Flow AI</h1>
                     </div>
-                    <nav className="flex-1 px-4 space-y-2 mt-4">
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-primary transition-colors" to="/user-dashboard">
-                            <span className="material-symbols-outlined">dashboard</span>
-                            <span className="font-medium">Dashboard</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/10 text-primary transition-colors border border-primary/20" to="/visa-progress-tracker">
-                            <span className="material-symbols-outlined">assignment</span>
-                            <span className="font-medium">Applications</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-primary transition-colors" to="/document-vault-upload-system">
-                            <span className="material-symbols-outlined">description</span>
-                            <span className="font-medium">Documents</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-primary transition-colors" to="/tracking-simulation">
-                            <span className="material-symbols-outlined">satellite_alt</span>
-                            <span className="font-medium">Tracking Sim</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-primary transition-colors" to="/visa-appointment-scheduler">
-                            <span className="material-symbols-outlined">payments</span>
-                            <span className="font-medium">Payments</span>
-                        </Link>
-                    </nav>
+                    <SidebarNav items={NAV_ITEMS_USER} activeRoute={ROUTES.PROGRESS_TRACKER} />
                     <div className="p-4">
                         <div className="bg-primary/5 backdrop-blur-sm border border-primary/20 p-4 rounded-xl space-y-3">
                             <p className="text-xs font-bold uppercase tracking-wider text-primary/70">Next Steps</p>
                             <ul className="text-sm space-y-2">
-                                <li className="flex items-start gap-2 text-slate-300">
-                                    <span className="material-symbols-outlined text-xs mt-1 text-primary">circle</span>
-                                    Complete biometrics
-                                </li>
-                                <li className="flex items-start gap-2 text-slate-300">
-                                    <span className="material-symbols-outlined text-xs mt-1 text-primary">circle</span>
-                                    Print appointment letter
-                                </li>
+                                <li className="flex items-start gap-2 text-slate-300"><span className="material-symbols-outlined text-xs mt-1 text-primary">circle</span>Complete biometrics</li>
+                                <li className="flex items-start gap-2 text-slate-300"><span className="material-symbols-outlined text-xs mt-1 text-primary">circle</span>Print appointment letter</li>
                             </ul>
                         </div>
-                        <Link to="/ai-visa-chatbot"><button className="mt-4 w-full flex items-center justify-center gap-2 bg-primary text-background-dark font-bold py-3 rounded-lg hover:opacity-90 transition-opacity">
-                            <span className="material-symbols-outlined">smart_toy</span>
-                            Need Help?
-                        </button></Link>
+                        <Button variant="primary" to={ROUTES.CHATBOT} icon="smart_toy" className="w-full mt-4">{L.CONTACT_US}</Button>
                     </div>
                 </aside>
                 {/* Main Content */}
@@ -106,42 +69,14 @@ const VisaProgressTracker = () => {
                             <span className="font-mono text-primary bg-primary/10 px-2 py-1 rounded">#VF-9928341</span>
                         </div>
                         <div className="flex items-center gap-6">
-                            <div className="relative">
-                                <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="text-slate-400 hover:text-primary relative">
-                                    <span className="material-symbols-outlined">notifications</span>
-                                    <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full ring-2 ring-background-dark"></span>
-                                </button>
-                                {showNotifications && (
-                                    <div className="absolute right-0 top-10 w-72 bg-background-dark border border-primary/20 rounded-xl shadow-2xl p-4 z-50">
-                                        <h4 className="text-sm font-bold text-white mb-3">Notifications</h4>
-                                        <div className="space-y-3">
-                                            <div className="flex items-start gap-2 p-2 rounded-lg bg-primary/5">
-                                                <span className="material-symbols-outlined text-primary text-sm mt-0.5">info</span>
-                                                <div>
-                                                    <p className="text-xs font-semibold">Appointment Confirmed</p>
-                                                    <p className="text-[10px] text-slate-500">Oct 28 – VFS Global Center</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-start gap-2 p-2 rounded-lg bg-primary/5">
-                                                <span className="material-symbols-outlined text-green-500 text-sm mt-0.5">check_circle</span>
-                                                <div>
-                                                    <p className="text-xs font-semibold">Documents Verified</p>
-                                                    <p className="text-[10px] text-slate-500">All documents passed validation</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            <button aria-label="Settings" onClick={() => alert('Settings page coming soon!\n\nManage notifications, language, and display preferences.')} className="text-slate-400 hover:text-primary">
-                                <span className="material-symbols-outlined">settings</span>
-                            </button>
+                            <NotificationBell />
+                            <Button variant="icon" icon="settings" />
                             <div className="flex items-center gap-3 border-l border-primary/10 pl-6">
                                 <div className="text-right">
                                     <p className="text-xs font-medium text-slate-100 leading-none">Alex Rivera</p>
                                     <p className="text-[10px] text-slate-500 mt-1">Premium Member</p>
                                 </div>
-                                <img className="w-9 h-9 rounded-full border-2 border-primary/30" alt="User" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1QF8eYc2MGuLwPuhq-Xm47qIx9hE9yPtLCNtWIVTTFHp6UaBH_G0rHm-Engsv99HCQTLm2q08yhqFDS_yVx-WyFs9bM8pay7PxYzdjHxAzolVeob8WSehbW2qM1HZ-AC2sDhhLnDFkNNk6EVp_23-_JIPqbAAAOelMqSzuvdLRSruxQDCPzk4YM0h8T6adss94tDUvmk9lXOGe07pBubjZLMSg_3n6jjJ-a_4F2W8iN_QKOsXQzOVg3ErHtk7umyFZd7cgBafGpo3" />
+                                <img className="w-9 h-9 rounded-full border-2 border-primary/30" alt="User" src="https://i.pravatar.cc/150?u=VisaProgressTracker" />
                             </div>
                         </div>
                     </header>
@@ -184,15 +119,9 @@ const VisaProgressTracker = () => {
                                             
                                             {isCurrent && (
                                                 <div className="mt-6 flex flex-wrap gap-3">
-                                                    <button onClick={() => handleViewLocation(step)} className="bg-primary text-background-dark text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2 hover:brightness-110 transition-all">
-                                                        <span className="material-symbols-outlined text-sm">map</span> View Location
-                                                    </button>
-                                                    <Link to="/visa-appointment-scheduler"><button className="bg-primary/20 text-primary border border-primary/30 text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2">
-                                                        <span className="material-symbols-outlined text-sm">calendar_month</span> Reschedule
-                                                    </button></Link>
-                                                    <Link to="/tracking-simulation"><button className="bg-primary/20 text-primary border border-primary/30 text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2">
-                                                        <span className="material-symbols-outlined text-sm">satellite_alt</span> Simulate Tracking
-                                                    </button></Link>
+                                                    <Button size="sm" icon="map" onClick={() => handleViewLocation(step)}>{L.VIEW_LOCATION}</Button>
+                                                    <Button variant="secondary" size="sm" icon="calendar_month" to={ROUTES.APPOINTMENT_SCHEDULER}>{L.RESCHEDULE}</Button>
+                                                    <Button variant="secondary" size="sm" icon="satellite_alt" to={ROUTES.TRACKING_SIM}>Simulate Tracking</Button>
                                                 </div>
                                             )}
                                         </div>
@@ -223,9 +152,7 @@ const VisaProgressTracker = () => {
             </div>
             {/* Chat Widget (Floating) */}
             <div className="fixed bottom-6 right-6 z-50">
-                <Link to="/ai-visa-chatbot"><button className="w-14 h-14 bg-primary rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(13,204,242,0.4)]">
-                    <span className="material-symbols-outlined text-background-dark text-3xl font-bold">chat_bubble</span>
-                </button></Link>
+                <Button variant="primary" to={ROUTES.CHATBOT} icon="chat_bubble" className="w-14 h-14 !p-0 !rounded-full !shadow-[0_0_15px_rgba(13,204,242,0.4)]" />
             </div>
         </div>
     );

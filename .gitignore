@@ -3,11 +3,13 @@ __pycache__/
 *.pyc
 venv/
 .env
+*.env.local
+*.env.production
 
 # Node
 node_modules/
 build/
-.env
+dist/
 
 # GSD Planning (do not commit)
 .planning/
@@ -15,3 +17,28 @@ build/
 # Internal Docs
 VAS SRS.md
 project_purpose.md
+
+# Secrets and Credentials
+*client_secret*.json
+*credentials*.json
+service-account*.json
+*.pem
+*.key
+*.p12
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+faiss_index/
+chat_history.db

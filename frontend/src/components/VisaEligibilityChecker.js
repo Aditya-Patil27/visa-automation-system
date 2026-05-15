@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const STEPS = [
     { num: 1, label: 'Personal', icon: 'person' },
@@ -37,19 +41,13 @@ const VisaEligibilityChecker = () => {
     const [error, setError] = useState('');
     const [submitResult, setSubmitResult] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const navigate = useNavigate();
     const [searchParams] = useSearchParams();
 
     useEffect(() => {
         const existingId = searchParams.get('id');
-        const token = localStorage.getItem('access_token');
-        if (!token) { navigate('/login'); return; }
 
         if (existingId) {
-            fetch(`http://localhost:8000/assessment/${existingId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-                .then(res => { if (!res.ok) throw new Error('Failed to load'); return res.json(); })
+            api.get(`/assessment/${existingId}`)
                 .then(data => {
                     setAssessmentId(data.id);
                     setCurrentStep(data.current_step);
@@ -61,31 +59,21 @@ const VisaEligibilityChecker = () => {
                 .catch(() => setError('Could not load your saved assessment. Starting fresh.'))
                 .finally(() => setLoading(false));
         } else {
-            fetch('http://localhost:8000/assessment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
-            })
-                .then(res => { if (!res.ok) throw new Error('Failed to create'); return res.json(); })
+            api.post('/assessment', {})
                 .then(data => setAssessmentId(data.id))
                 .catch(() => setError('Could not create assessment. Please try again.'))
                 .finally(() => setLoading(false));
         }
-    }, [searchParams, navigate]);
+    }, [searchParams]);
 
     const saveProgress = useCallback(async (step, data) => {
         if (!assessmentId) return;
         try {
-            const token = localStorage.getItem('access_token');
-            if (!token) { navigate('/login'); return; }
-            await fetch(`http://localhost:8000/assessment/${assessmentId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ step, data })
-            });
+            await api.put(`/assessment/${assessmentId}`, { step, data });
         } catch (err) {
             console.error('Auto-save failed:', err);
         }
-    }, [assessmentId, navigate]);
+    }, [assessmentId]);
 
     const handleFieldChange = (step, field, value) => {
         setFormData(prev => ({ ...prev, [step]: { ...prev[step], [field]: value } }));
@@ -123,22 +111,12 @@ const VisaEligibilityChecker = () => {
         setError('');
         await saveProgress(4, formData[4] || {});
         try {
-            const token = localStorage.getItem('access_token');
-            if (!token) { navigate('/login'); return; }
-            const res = await fetch(`http://localhost:8000/assessment/${assessmentId}/submit`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setSubmitResult(data.result || data);
-            } else if (res.status === 401) {
-                navigate('/login');
-            } else {
+            const data = await api.post(`/assessment/${assessmentId}/submit`);
+            setSubmitResult(data.result || data);
+        } catch (err) {
+            if (err.status !== 401) {
                 setError('We couldn\'t process your assessment. Please check your answers and try again.');
             }
-        } catch (err) {
-            setError('Network error. Please try again later.');
         } finally {
             setIsSubmitting(false);
         }
@@ -280,9 +258,7 @@ const VisaEligibilityChecker = () => {
                         onChange={(e) => handleFieldChange(3, doc.id, e.target.checked)} />
                     <span className="material-symbols-outlined text-primary">{doc.icon}</span>
                     <label htmlFor={`doc_${doc.id}`} className="flex-1 text-sm text-slate-200">{doc.label}</label>
-                    <button className="text-xs font-medium text-primary opacity-60 hover:opacity-100 transition-opacity">
-                        <span className="material-symbols-outlined text-lg">cloud_upload</span>
-                    </button>
+                    <Button variant="ghost" icon="cloud_upload" />
                 </div>
             ))}
         </div>
@@ -292,10 +268,9 @@ const VisaEligibilityChecker = () => {
         <div className="bg-primary/5 backdrop-blur-sm rounded-xl p-5 border border-white/5">
             <div className="flex items-center justify-between mb-3">
                 <h4 className="font-semibold text-slate-100">{title}</h4>
-                <button onClick={async () => { await saveProgress(4, formData[4] || {}); setCurrentStep(stepToEdit); }}
-                    className="text-xs font-bold text-primary uppercase tracking-wider hover:underline">
-                    Edit
-                </button>
+                <Button variant="ghost" onClick={async () => { await saveProgress(4, formData[4] || {}); setCurrentStep(stepToEdit); }}>
+                    <span className="text-xs font-bold text-primary uppercase tracking-wider">{L.EDIT}</span>
+                </Button>
             </div>
             <div className="space-y-1">
                 {Object.entries(data || {}).filter(([k, v]) => v && typeof v !== 'object').map(([key, val]) => (
@@ -315,10 +290,9 @@ const VisaEligibilityChecker = () => {
             <div className="bg-primary/5 backdrop-blur-sm rounded-xl p-5 border border-white/5">
                 <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold text-slate-100">Documents Checklist</h4>
-                    <button onClick={async () => { await saveProgress(4, formData[4] || {}); setCurrentStep(3); }}
-                        className="text-xs font-bold text-primary uppercase tracking-wider hover:underline">
-                        Edit
-                    </button>
+                    <Button variant="ghost" onClick={async () => { await saveProgress(4, formData[4] || {}); setCurrentStep(3); }}>
+                        <span className="text-xs font-bold text-primary uppercase tracking-wider">{L.EDIT}</span>
+                    </Button>
                 </div>
                 <div className="space-y-1">
                     {REQUIRED_DOCS.filter(d => formData[3]?.[d.id]).map(d => (
@@ -388,12 +362,8 @@ const VisaEligibilityChecker = () => {
                     </div>
                 )}
                 <div className="flex flex-wrap gap-4 pt-4">
-                    <Link to="/document-vault-upload-system">
-                        <button className="px-8 py-4 bg-primary text-background-dark font-bold rounded-xl hover:shadow-[0_0_20px_rgba(13,204,242,0.4)] transition-all">Start Application</button>
-                    </Link>
-                    <Link to="/ai-visa-chatbot">
-                        <button className="px-8 py-4 bg-background-dark border border-slate-700 text-slate-100 font-bold rounded-xl hover:border-primary/50 transition-all">Book AI Consultation</button>
-                    </Link>
+                    <Button variant="primary" to={ROUTES.DOCUMENT_VAULT} icon="article">{L.START_APPLICATION}</Button>
+                    <Button variant="secondary" to={ROUTES.CHATBOT} icon="smart_toy">{L.BOOK_CONSULTATION}</Button>
                 </div>
             </div>
         );
@@ -402,7 +372,7 @@ const VisaEligibilityChecker = () => {
     if (loading) {
         return (
             <div className="font-display bg-background-dark text-slate-100 min-h-screen flex items-center justify-center">
-                <div className="animate-pulse text-primary">Loading...</div>
+                <div className="animate-pulse text-primary">{L.LOADING}</div>
             </div>
         );
     }
@@ -417,25 +387,23 @@ const VisaEligibilityChecker = () => {
                     <h1 className="text-xl font-bold tracking-tight text-slate-100">VisaFlow <span className="text-primary text-sm font-medium">AI</span></h1>
                 </div>
                 <nav className="hidden md:flex items-center gap-8">
-                    <Link className="text-sm font-medium text-primary border-b-2 border-primary pb-1" to="/visa-eligibility-checker">Eligibility</Link>
-                    <Link className="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" to="/visa-progress-tracker">My Applications</Link>
-                    <Link className="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" to="/">Pricing</Link>
-                    <Link className="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" to="/">Support</Link>
+                    <a className="text-sm font-medium text-primary border-b-2 border-primary pb-1" href={ROUTES.ELIGIBILITY_CHECKER}>{L.ELIGIBILITY}</a>
+                    <a className="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" href={ROUTES.PROGRESS_TRACKER}>My Applications</a>
+                    <a className="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" href="/">Pricing</a>
+                    <a className="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" href="/">{L.SUPPORT}</a>
                 </nav>
                 <div className="flex items-center gap-4">
-                    <button className="text-slate-400 hover:text-slate-100">
-                        <span className="material-symbols-outlined">notifications</span>
-                    </button>
+                    <Button variant="icon" icon="notifications" />
                     <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-blue-500 p-[2px]">
                         <div className="w-full h-full rounded-full bg-background-dark flex items-center justify-center overflow-hidden">
-                            <img alt="User Profile" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBr3NevAIQPtcua62WrMwFAoIZF42Ho5KLz7xwWXnBhXhlhX_G_dSJKf5avKQRKgKHpLuaFx39yT5RJCn3lCAOs8-Y9P-UNMCiFDXpn_R_zoFBjMyEdGIBD2XSQHMU_cyBwcReUY9ds7BQ8VmhkImX2FliCe8Z1R--7bTBG_sqkSh2CcUnNShxqXvbhDcmjkDCJDYhM89RWX007VFO97nVZXfxz9iGrLTIlWUCPDkq-r7_XCDMkBSqxbdKjNzZX67VExUaPFOtal6d5" />
+                            <img alt="User" className="w-full h-full object-cover" src="https://i.pravatar.cc/150?u=user" />
                         </div>
                     </div>
                 </div>
             </header>
             <main className="max-w-6xl mx-auto px-6 py-12">
                 <div className="mb-10">
-                    <h2 className="text-3xl font-bold text-slate-100 mb-2">Visa Eligibility Checker</h2>
+                    <h2 className="text-3xl font-bold text-slate-100 mb-2">{L.ELIGIBILITY_CHECKER}</h2>
                     <p className="text-slate-400 max-w-2xl">Complete this brief assessment to determine which visa pathways are available for your upcoming trip.</p>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -452,9 +420,7 @@ const VisaEligibilityChecker = () => {
                                     <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-red-400 text-sm flex items-start gap-3 mb-6">
                                         <span className="material-symbols-outlined text-lg shrink-0">error</span>
                                         <span>{error}</span>
-                                        <button onClick={() => setError('')} className="ml-auto text-red-400/70 hover:text-red-400">
-                                            <span className="material-symbols-outlined text-lg">close</span>
-                                        </button>
+                                        <Button variant="icon" icon="close" onClick={() => setError('')} className="ml-auto text-red-400/70 hover:text-red-400" />
                                     </div>
                                 )}
 
@@ -466,29 +432,18 @@ const VisaEligibilityChecker = () => {
 
                                     <div className="pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
                                         {currentStep > 1 ? (
-                                            <button onClick={handleBack}
-                                                className="text-slate-400 hover:text-slate-100 text-sm font-medium flex items-center gap-2 px-4 py-2 transition-colors">
-                                                <span className="material-symbols-outlined text-lg">arrow_back</span>
-                                                Back
-                                            </button>
+                                            <Button variant="ghost" icon="arrow_back" onClick={handleBack}>{L.BACK}</Button>
                                         ) : (
                                             <div></div>
                                         )}
                                         {currentStep < 4 ? (
-                                            <button onClick={handleNext}
-                                                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-background-dark font-bold py-3 px-8 rounded-lg shadow-[0_4px_14px_0_rgba(13,204,242,0.39)] hover:shadow-[0_6px_20px_rgba(13,204,242,0.23)] transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                                            <Button variant="primary" onClick={handleNext} icon="arrow_forward" className="w-full sm:w-auto">
                                                 Next Step: {STEPS[currentStep].label}
-                                                <span className="material-symbols-outlined">arrow_forward</span>
-                                            </button>
+                                            </Button>
                                         ) : (
-                                            <button onClick={handleSubmit} disabled={isSubmitting}
-                                                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-background-dark font-bold py-3 px-8 rounded-lg shadow-[0_4px_14px_0_rgba(13,204,242,0.39)] hover:shadow-[0_6px_20px_rgba(13,204,242,0.23)] transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                                                {isSubmitting ? (
-                                                    <><span className="material-symbols-outlined animate-spin">refresh</span> Checking...</>
-                                                ) : (
-                                                    <><span className="material-symbols-outlined">verified</span> Check Eligibility</>
-                                                )}
-                                            </button>
+                                            <Button variant="primary" onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto" icon={isSubmitting ? 'refresh' : 'verified'}>
+                                                {isSubmitting ? <><span className="material-symbols-outlined animate-spin">refresh</span> {L.LOADING}</> : L.CHECK_ELIGIBILITY}
+                                            </Button>
                                         )}
                                     </div>
                                 </div>
@@ -516,11 +471,11 @@ const VisaEligibilityChecker = () => {
                             </div>
                             <h3 className="text-sm font-bold text-slate-100 mb-2">Need help?</h3>
                             <p className="text-xs text-slate-400 mb-4">Our AI assistant can guide you through each step.</p>
-                            <Link to="/ai-visa-chatbot"><button className="w-full py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold text-slate-200 transition-colors border border-slate-700">Launch AI Assistant</button></Link>
+                            <Button variant="secondary" to={ROUTES.CHATBOT} className="w-full">{L.LAUNCH_ASSISTANT}</Button>
                         </div>
                         <div className="rounded-xl h-48 bg-slate-800 overflow-hidden relative">
                             <div className="absolute inset-0 bg-gradient-to-t from-background-dark to-transparent opacity-60 z-10"></div>
-                            <img alt="World Map" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBkEU4Ni8lOtlXOCmAB8Al4KQQmys3RCIq6atISInQXhkfSFDaS2F5QY8Pe4AUFNtPvrcbc9RXfR4BFqX7JNXLwG2KTlRHg077_9OdotNcwg2oEAYqc46jJZcng9CbXAnUbjWwmztVuTuvN0mPYnxxPo8Vov7o3jtS7LAd9Fdm8GF4oIh4pEOsNhOciDe9hgu56wnEoqFlXVjTQXJgGV4Nu3UXzJ1jaM_uIHGgwopOcdxhriDJfe44ks-633MQV7t9CrJcwnLt9HnJh" />
+                            <img alt="World Map" className="w-full h-full object-cover" src="https://picsum.photos/seed/worldmap/400/300" />
                             <div className="absolute bottom-4 left-4 z-20">
                                 <span className="text-xs font-bold uppercase tracking-widest text-primary">Global Coverage</span>
                                 <p className="text-xs text-slate-300">Tracking 195+ Countries</p>

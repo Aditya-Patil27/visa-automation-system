@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import Button from './ui/Button';
+import { api } from '../services/api';
+import { L } from '../config/labels';
+import { ROUTES } from '../config/routes';
 
 const ScraperMonitoringDashboard = () => {
     const [logs, setLogs] = useState([]);
@@ -31,21 +34,10 @@ const ScraperMonitoringDashboard = () => {
     
     // Toast notification
     const [toast, setToast] = useState(null);
-    
-    const navigate = useNavigate();
 
     const fetchData = useCallback(async (showRefreshing = false) => {
         if (showRefreshing) setRefreshing(true);
         try {
-            const token = localStorage.getItem('access_token');
-            if (!token) {
-                navigate('/login');
-                return;
-            }
-            
-            const headers = { 'Authorization': `Bearer ${token}` };
-            
-            // Fetch logs with filters
             const logsParams = new URLSearchParams({
                 limit: limit.toString(),
                 skip: ((page - 1) * limit).toString()
@@ -53,34 +45,34 @@ const ScraperMonitoringDashboard = () => {
             if (targetFilter) logsParams.append('target', targetFilter);
             if (levelFilter) logsParams.append('level', levelFilter);
             
-            const [logsRes, statsRes, statusRes] = await Promise.all([
-                fetch(`http://localhost:8000/scraper-logs?${logsParams}`, { headers }),
-                fetch('http://localhost:8000/scraper-stats', { headers }),
-                fetch('http://localhost:8000/scraper-status', { headers })
+            await Promise.allSettled([
+                (async () => {
+                    try {
+                        const logsData = await api.get(`/scraper-logs?${logsParams}`);
+                        setLogs(logsData.logs || []);
+                        setTotalLogs(logsData.total || 0);
+                        setTotalPages(Math.ceil((logsData.total || 0) / limit));
+                    } catch (e) {}
+                })(),
+                (async () => {
+                    try {
+                        setStats(await api.get('/scraper-stats'));
+                    } catch (e) {}
+                })(),
+                (async () => {
+                    try {
+                        const statusData = await api.get('/scraper-status');
+                        setTargetStatus(statusData.targets || []);
+                    } catch (e) {}
+                })()
             ]);
-            
-            if (logsRes.ok) {
-                const logsData = await logsRes.json();
-                setLogs(logsData.logs || []);
-                setTotalLogs(logsData.total || 0);
-                setTotalPages(Math.ceil((logsData.total || 0) / limit));
-            }
-            
-            if (statsRes.ok) {
-                setStats(await statsRes.json());
-            }
-            
-            if (statusRes.ok) {
-                const statusData = await statusRes.json();
-                setTargetStatus(statusData.targets || []);
-            }
         } catch (err) {
             console.error("Failed to fetch monitoring data:", err);
         } finally {
             setLoading(false);
             if (showRefreshing) setRefreshing(false);
         }
-    }, [navigate, page, targetFilter, levelFilter]);
+    }, [page, targetFilter, levelFilter]);
 
     useEffect(() => {
         fetchData();
@@ -92,16 +84,9 @@ const ScraperMonitoringDashboard = () => {
 
     const handleRunNow = async (target) => {
         try {
-            const token = localStorage.getItem('access_token');
-            const res = await fetch('http://localhost:8000/scraper/run', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target })
-            });
-            if (res.ok) {
-                showToast(`Scraper started for ${target}`, 'success');
-                setTimeout(() => fetchData(true), 1000);
-            }
+            await api.post('/scraper/run', { target });
+            showToast(`Scraper started for ${target}`, 'success');
+            setTimeout(() => fetchData(true), 1000);
         } catch (err) {
             showToast('Failed to trigger scraper', 'error');
         }
@@ -114,11 +99,7 @@ const ScraperMonitoringDashboard = () => {
     const handleClearLogs = async () => {
         if (!window.confirm('Are you sure you want to clear logs older than 30 days?')) return;
         try {
-            const token = localStorage.getItem('access_token');
-            await fetch('http://localhost:8000/scraper-logs/clear?older_than_days=30', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            await api.post('/scraper-logs/clear?older_than_days=30');
             showToast('Old logs cleared successfully', 'success');
             fetchData();
         } catch (err) {
@@ -181,7 +162,7 @@ const ScraperMonitoringDashboard = () => {
     );
 
     if (loading) {
-        return <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">Loading monitoring dashboard...</div>;
+        return <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-slate-500">{L.LOADING}</div>;
     }
 
     return (
@@ -204,49 +185,49 @@ const ScraperMonitoringDashboard = () => {
                             <span className="material-symbols-outlined font-bold">query_stats</span>
                         </div>
                         <div className="flex flex-col">
-                            <h1 className="text-sm font-bold tracking-tight uppercase">VisaFlow AI</h1>
+                            <h1 className="text-sm font-bold tracking-tight uppercase">{L.APP_NAME}</h1>
                             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Admin Engine</p>
                         </div>
                     </div>
                     <nav className="flex-1 px-4 space-y-1">
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-primary transition-colors rounded-lg group" to="/admin-dashboard">
+                        <Button variant="nav" to={ROUTES.ADMIN_DASHBOARD} className="px-3 py-2 rounded-lg">
                             <span className="material-symbols-outlined text-[20px]">dashboard</span>
-                            <span className="text-sm font-medium">Dashboard</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 bg-primary/10 text-primary rounded-lg border border-primary/20" to="/scraper-monitoring-dashboard">
+                            <span className="text-sm font-medium">{L.DASHBOARD}</span>
+                        </Button>
+                        <Button variant="nav" to={ROUTES.SCRAPER_MONITOR} active className="px-3 py-2 rounded-lg border border-primary/20">
                             <span className="material-symbols-outlined text-[20px]">monitoring</span>
                             <span className="text-sm font-medium">Scraper Monitoring</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-primary transition-colors rounded-lg" to="/">
+                        </Button>
+                        <Button variant="nav" to={ROUTES.HOME} className="px-3 py-2 rounded-lg">
                             <span className="material-symbols-outlined text-[20px]">rule</span>
                             <span className="text-sm font-medium">Automation Rules</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-primary transition-colors rounded-lg" to="/visa-progress-tracker">
+                        </Button>
+                        <Button variant="nav" to={ROUTES.PROGRESS_TRACKER} className="px-3 py-2 rounded-lg">
                             <span className="material-symbols-outlined text-[20px]">database</span>
                             <span className="text-sm font-medium">Visa Database</span>
-                        </Link>
+                        </Button>
                         <div className="pt-4 pb-2 px-3">
                             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">System</p>
                         </div>
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-primary transition-colors rounded-lg" to="/">
+                        <Button variant="nav" to={ROUTES.HOME} className="px-3 py-2 rounded-lg">
                             <span className="material-symbols-outlined text-[20px]">settings</span>
-                            <span className="text-sm font-medium">Settings</span>
-                        </Link>
-                        <Link className="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-primary transition-colors rounded-lg" to="/">
+                            <span className="text-sm font-medium">{L.SETTINGS}</span>
+                        </Button>
+                        <Button variant="nav" to={ROUTES.HOME} className="px-3 py-2 rounded-lg">
                             <span className="material-symbols-outlined text-[20px]">shield</span>
                             <span className="text-sm font-medium">Node Security</span>
-                        </Link>
+                        </Button>
                     </nav>
                     <div className="p-4 border-t border-slate-200 dark:border-primary/10">
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100 dark:bg-primary/5">
-                            <div className="w-9 h-9 rounded-full bg-cover bg-center border border-primary/20" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAT0Vq6b8_6PU3NZ8uyc-0X_k_ATMqeujfRzDMyX4FUrqzeD6TAw2fggNCQamDBjIGNWrM0Ei7Qxj22rJiI5pQHyH86sUfcGpY0ttxpoOsmcb6y7ICBulVX_WBskpDIF-IbJEMWn-L2a7HaVm4kncmPxcWVoN9iba2ranDgcVGORtoca-1fS1rPEbua684mWqII5UL1QEO0V1eXOzXb5UTvk0-kEK-9-10L_-Tfo6nn6p-k1qLORCzcKIQyGZmfrFzs5SpqIfDOwkE9')" }}></div>
+                            <div className="w-9 h-9 rounded-full bg-cover bg-center border border-primary/20" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=ScraperMonitoringDashboard')" }}></div>
                             <div className="flex flex-col">
                                 <span className="text-xs font-semibold">Alex Rivera</span>
                                 <span className="text-[10px] text-primary">System Admin</span>
                             </div>
-                            <button aria-label="Logout" onClick={() => console.log('Logout')} className="ml-auto text-slate-400 hover:text-white">
+                            <Button variant="icon" aria-label="Logout" onClick={() => console.log('Logout')}>
                                 <span className="material-symbols-outlined text-[18px]">logout</span>
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </aside>
@@ -270,23 +251,23 @@ const ScraperMonitoringDashboard = () => {
                                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">search</span>
                                 <input 
                                     className="pl-10 pr-4 py-1.5 rounded-lg bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64 transition-all" 
-                                    placeholder="Search logs..." 
+                                    placeholder={L.SEARCH}
                                     type="text"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
                             </div>
-                            <button 
-                                aria-label="Refresh" 
+                            <Button 
+                                variant="icon"
+                                aria-label={L.REFRESH}
                                 onClick={() => fetchData(true)}
                                 disabled={refreshing}
-                                className="p-2 text-slate-400 hover:text-primary transition-colors"
                             >
                                 <span className={`material-symbols-outlined text-[24px] ${refreshing ? 'animate-spin' : ''}`}>refresh</span>
-                            </button>
-                            <button aria-label="Help" onClick={() => console.log('Help Clicked')} className="p-2 text-slate-400 hover:text-primary transition-colors">
+                            </Button>
+                            <Button variant="icon" aria-label="Help" onClick={() => console.log('Help Clicked')}>
                                 <span className="material-symbols-outlined text-[24px]">help_outline</span>
-                            </button>
+                            </Button>
                         </div>
                     </header>
                     
@@ -361,13 +342,14 @@ const ScraperMonitoringDashboard = () => {
                                         <span className="material-symbols-outlined text-primary">public</span>
                                         Target Embassy Status
                                     </h3>
-                                    <button 
+                                    <Button 
+                                        variant="secondary" size="sm"
                                         onClick={handleRunAll}
-                                        className="text-xs text-primary font-medium flex items-center gap-1 border border-primary/20 px-3 py-1.5 rounded hover:bg-primary/10 transition-colors min-h-[44px] min-w-[80px] justify-center"
+                                        className="min-h-[44px] min-w-[80px]"
+                                        icon="play_arrow"
                                     >
-                                        <span className="material-symbols-outlined text-sm">play_arrow</span>
                                         Run All
-                                    </button>
+                                    </Button>
                                 </div>
                                 <div className="divide-y divide-primary/5">
                                     {targetStatus.map((target) => (
@@ -393,13 +375,13 @@ const ScraperMonitoringDashboard = () => {
                                                 }`}>
                                                     {target.status.toUpperCase()}
                                                 </span>
-                                                <button 
+                                                <Button 
+                                                    variant="icon"
                                                     onClick={() => handleRunNow(target.target)}
-                                                    className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-colors"
                                                     title="Run Now"
                                                 >
                                                     <span className="material-symbols-outlined text-[18px]">play_arrow</span>
-                                                </button>
+                                                </Button>
                                             </div>
                                         </div>
                                     ))}
@@ -482,12 +464,12 @@ const ScraperMonitoringDashboard = () => {
                                         />
                                     </div>
                                     <div className="flex gap-2">
-                                        <button className="flex-1 px-3 py-2 text-xs font-medium border border-primary/20 rounded-lg hover:bg-primary/10 transition-colors min-h-[44px]">
+                                        <Button variant="secondary" className="flex-1 min-h-[44px]">
                                             Test Email
-                                        </button>
-                                        <button className="flex-1 px-3 py-2 text-xs font-medium bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors min-h-[44px]">
-                                            Save Settings
-                                        </button>
+                                        </Button>
+                                        <Button variant="primary" className="flex-1 min-h-[44px]">
+                                            {L.SAVE} Settings
+                                        </Button>
                                     </div>
                                 </div>
                             </div>
@@ -556,20 +538,22 @@ const ScraperMonitoringDashboard = () => {
                                         <option value="WARNING">WARNING</option>
                                         <option value="ERROR">ERROR</option>
                                     </select>
-                                    <button 
+                                    <Button 
+                                        variant="secondary" size="sm"
                                         onClick={exportToCSV}
-                                        className="text-xs text-primary font-medium flex items-center gap-1 border border-primary/20 px-3 py-1.5 rounded hover:bg-primary/10 transition-colors min-h-[44px]"
+                                        icon="download"
+                                        className="min-h-[44px]"
                                     >
-                                        <span className="material-symbols-outlined text-sm">download</span>
                                         Export CSV
-                                    </button>
-                                    <button 
+                                    </Button>
+                                    <Button 
+                                        variant="danger" size="sm"
                                         onClick={handleClearLogs}
-                                        className="text-xs text-red-500 font-medium flex items-center gap-1 border border-red-500/20 px-3 py-1.5 rounded hover:bg-red-500/10 transition-colors min-h-[44px]"
+                                        icon="delete"
+                                        className="min-h-[44px]"
                                     >
-                                        <span className="material-symbols-outlined text-sm">delete</span>
                                         Clear Old
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                             
@@ -613,11 +597,11 @@ const ScraperMonitoringDashboard = () => {
                                                     </td>
                                                     <td className="px-6 py-4 max-w-xs truncate">{log.message || '-'}</td>
                                                     <td className="px-6 py-4 text-right">
-                                                        <button className="p-1 text-slate-400 hover:text-primary">
+                                                        <Button variant="icon" onClick={() => setExpandedLog(expandedLog === index ? null : index)}>
                                                             <span className="material-symbols-outlined text-[16px]">
                                                                 {expandedLog === index ? 'expand_less' : 'expand_more'}
                                                             </span>
-                                                        </button>
+                                                        </Button>
                                                     </td>
                                                 </tr>
                                                 {expandedLog === index && (
@@ -669,29 +653,29 @@ const ScraperMonitoringDashboard = () => {
                             {/* Pagination */}
                             {totalPages > 1 && (
                                 <div className="p-4 border-t border-primary/10 flex items-center justify-between">
-                                    <button 
+                                    <Button 
+                                        variant="secondary" size="sm"
                                         onClick={() => setPage(Math.max(1, page - 1))}
                                         disabled={page === 1}
-                                        className="px-3 py-1.5 rounded-lg text-xs font-medium border border-primary/20 hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                                     >
                                         Previous
-                                    </button>
+                                    </Button>
                                     <span className="text-xs text-slate-500">
                                         Page {page} of {totalPages}
                                     </span>
-                                    <button 
+                                    <Button 
+                                        variant="secondary" size="sm"
                                         onClick={() => setPage(Math.min(totalPages, page + 1))}
                                         disabled={page === totalPages}
-                                        className="px-3 py-1.5 rounded-lg text-xs font-medium border border-primary/20 hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                                     >
-                                        Next
-                                    </button>
+                                        {L.NEXT}
+                                    </Button>
                                 </div>
                             )}
                             
                             {filteredLogs.length === 0 && (
                                 <div className="p-8 text-center text-slate-500 text-sm">
-                                    No logs found. Try adjusting your filters or run a scrape.
+                                    {L.NO_DATA}. Try adjusting your filters or run a scrape.
                                 </div>
                             )}
                         </div>

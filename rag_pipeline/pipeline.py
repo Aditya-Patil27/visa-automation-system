@@ -19,7 +19,7 @@ def load_vectorstore():
     settings = Settings()
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     if os.path.exists(settings.faiss_index_path):
-        return FAISS.load_local(settings.faiss_index_path, embeddings, allow_dangerous_deserialization=True)
+        return FAISS.load_local(settings.faiss_index_path, embeddings, allow_dangerous_deserialization=False)
     else:
         # create an empty store
         return FAISS.from_texts([""], embeddings)

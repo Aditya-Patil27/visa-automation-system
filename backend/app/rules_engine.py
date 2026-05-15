@@ -9,6 +9,7 @@ from typing import Dict, Any, List
 
 def check_age(age: int, min_age: int, max_age: int | None = None) -> Dict[str, Any]:
     """Check if applicant meets age requirements."""
+    age = int(age) if not isinstance(age, int) else age
     if age < min_age:
         return {"passed": False, "detail": f"Minimum age is {min_age} (provided: {age})"}
     if max_age is not None and age > max_age:
@@ -21,6 +22,7 @@ def check_funds(balance: float, min_balance: float) -> Dict[str, Any]:
 
     Per D-20: actionable feedback includes actual vs required values.
     """
+    balance = float(balance) if not isinstance(balance, (int, float)) else balance
     if balance < min_balance:
         return {
             "passed": False,

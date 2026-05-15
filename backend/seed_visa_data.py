@@ -587,5 +587,55 @@ async def seed():
     print("FAISS index rebuilt successfully.")
 
 
+async def generate_appointment_slots():
+    """Generate 30 days of appointment slots starting from today.
+    8 slots per weekday (9AM-5PM), ~40% randomly booked for test users."""
+    from app.models import AppointmentTable
+    from datetime import date, timedelta
+    import random
+
+    await init_db()
+    async with async_session() as session:
+        # Clear existing slots
+        await session.execute(delete(AppointmentTable))
+
+        test_emails = ["john@example.com", "jane@example.com", "bob@example.com",
+                       "alice@example.com", "testuser@example.com"]
+        time_slots = [f"{h}:00 {'AM' if h < 12 else 'PM'}" for h in range(9, 17)]
+        start = date.today()
+        count = 0
+
+        for day_offset in range(30):
+            d = start + timedelta(days=day_offset)
+            if d.weekday() >= 5:
+                continue
+            date_str = d.strftime("%Y-%m-%d")
+            for ts in time_slots:
+                is_booked = random.random() < 0.4
+                if is_booked:
+                    status = random.choices(["confirmed", "cancelled", "completed"], weights=[60, 20, 20])[0]
+                    row = AppointmentTable(
+                        user_email=random.choice(test_emails),
+                        visa_type_id=random.randint(1, 5),
+                        date=date_str, time_slot=ts, status=status,
+                    )
+                else:
+                    row = AppointmentTable(
+                        user_email="", visa_type_id=None,
+                        date=date_str, time_slot=ts, status="available",
+                    )
+                session.add(row)
+                count += 1
+
+        await session.commit()
+        print(f"Generated {count} appointment slots (30 days, Mon-Fri)")
+
+    return count
+
+
 if __name__ == "__main__":
-    asyncio.run(seed())
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--slots":
+        asyncio.run(generate_appointment_slots())
+    else:
+        asyncio.run(seed())

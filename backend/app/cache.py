@@ -5,19 +5,21 @@ Supports caching of visa requirements, user sessions, and RAG query results.
 
 import json
 import hashlib
+import logging
 from typing import Any, Optional
 from datetime import timedelta
 
-import redis.asyncio as redis
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
-    cache_ttl_default: int = 300  # 5 minutes
-    cache_ttl_rag: int = 3600  # 1 hour for RAG results
-    cache_ttl_visa: int = 600  # 10 minutes for visa requirements
-    cache_ttl_session: int = 1800  # 30 minutes for sessions
+    cache_ttl_default: int = 300
+    cache_ttl_rag: int = 3600
+    cache_ttl_visa: int = 600
+    cache_ttl_session: int = 1800
 
     class Config:
         env_file = ".env"
@@ -27,17 +29,25 @@ class CacheService:
     """Async Redis cache service for the visa automation system."""
 
     def __init__(self):
-        self._client: Optional[redis.Redis] = None
+        self._client: Any = None
         self._settings = Settings()
 
     async def connect(self) -> None:
-        """Initialize Redis connection."""
+        """Initialize Redis connection lazily — only imports redis module on first use."""
         if self._client is None:
-            self._client = redis.from_url(
-                self._settings.redis_url,
-                encoding="utf-8",
-                decode_responses=True
-            )
+            try:
+                import redis.asyncio as redis
+                self._client = redis.from_url(
+                    self._settings.redis_url,
+                    encoding="utf-8",
+                    decode_responses=True
+                )
+            except ImportError:
+                logger.warning("redis module not installed — cache disabled")
+                self._client = None
+
+    def is_connected(self) -> bool:
+        return self._client is not None
 
     async def disconnect(self) -> None:
         """Close Redis connection."""
@@ -48,7 +58,7 @@ class CacheService:
     async def get(self, key: str) -> Optional[str]:
         """Get value from cache."""
         if not self._client:
-            await self.connect()
+            return None
         return await self._client.get(key)
 
     async def set(
@@ -59,7 +69,7 @@ class CacheService:
     ) -> bool:
         """Set value in cache with optional TTL (in seconds)."""
         if not self._client:
-            await self.connect()
+            return False
         if ttl is None:
             ttl = self._settings.cache_ttl_default
         return await self._client.setex(key, ttl, value)
@@ -67,13 +77,13 @@ class CacheService:
     async def delete(self, key: str) -> bool:
         """Delete key from cache."""
         if not self._client:
-            await self.connect()
+            return False
         return await self._client.delete(key) > 0
 
     async def exists(self, key: str) -> bool:
         """Check if key exists in cache."""
         if not self._client:
-            await self.connect()
+            return False
         return await self._client.exists(key) > 0
 
     async def get_json(self, key: str) -> Optional[dict]:
@@ -98,7 +108,7 @@ class CacheService:
     async def clear_pattern(self, pattern: str) -> int:
         """Clear all keys matching a pattern."""
         if not self._client:
-            await self.connect()
+            return 0
         keys = []
         async for key in self._client.scan_iter(match=pattern):
             keys.append(key)
@@ -109,7 +119,7 @@ class CacheService:
     async def clear_all(self) -> bool:
         """Clear all cache entries."""
         if not self._client:
-            await self.connect()
+            return False
         await self._client.flushdb()
         return True
 

@@ -14,10 +14,10 @@ Four phases to transform the existing Visa Automation prototype into a full-feat
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Auth & Role Management** - Secure authentication, registration, password management, and role-based access
-- [ ] **Phase 2: Chatbot & Visa Assessment** - AI-powered chatbot, eligibility checking, and pre-assessment flows
-- [ ] **Phase 3: Scheduling & Documents** - Appointment booking calendar, document upload, and verification workflows
-- [ ] **Phase 4: Notifications & Admin** - Email notifications, query system, admin dashboard, and progress tracking
+- [x] **Phase 1: Auth & Role Management** - Secure authentication, registration, password management, and role-based access
+- [x] **Phase 2: Chatbot & Visa Assessment** - AI-powered chatbot, eligibility checking, and pre-assessment flows
+- [x] **Phase 3: Scheduling & Documents** - Appointment booking calendar, document upload, and verification workflows
+- [x] **Phase 4: Notifications & Admin** - Email notifications, query system, admin dashboard, and progress tracking
 
 ## Phase Details
 
@@ -33,13 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Passwords are hashed in database (not plaintext)
   6. Three roles exist: applicant, consultant, admin with distinct access levels
   7. Synthetic user data seeds database with 10+ fake applicants, 3 admins, 2 consultants
-**Plans**: 4 plans
-
-Plans:
-- [ ] 01-01: Registration & Login Flow
-- [ ] 01-02: Password Management & Email Verification
-- [ ] 01-03: Role-Based Access Control
-- [ ] 01-04: Synthetic Auth Data Seeding
+**Plans**: Implemented inline — register/login, password reset, role-based auth, seed data
 
 ### Phase 2: Chatbot & Visa Assessment
 **Goal**: Users can interact with an AI chatbot for visa queries and complete eligibility assessments against destination country requirements.
@@ -58,7 +52,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — RAG Chat with Memory & Streaming (BOT-01, BOT-02)
 - [x] 02-02-PLAN.md — Eligibility Rules Engine + Seed Data (BOT-03, VISA-02)
-- [ ] 02-03-PLAN.md — Pre-Assessment Form + Backend CRUD API (VISA-01, BOT-05)
+- [x] 02-03-PLAN.md — Pre-Assessment Form + Backend CRUD API (VISA-01, BOT-05)
 - [x] 02-04-PLAN.md — Eligibility Results + Alternative Visas + Test Infrastructure (BOT-04, VISA-03)
 
 ### Phase 3: Scheduling & Documents
@@ -76,10 +70,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 03-01: Appointment Calendar & Booking
-- [ ] 03-02: Document Upload & Storage
-- [ ] 03-03: Admin Document Verification
-- [ ] 03-04: Synthetic Appointment & Document Data
+- [x] 03-01-PLAN.md — Appointment Calendar & Booking (VISA-04, VISA-05, VISA-06)
+- [x] 03-02-PLAN.md — Document Upload & Storage (VISA-07, VISA-08)
+- [x] 03-03-PLAN.md — Admin Document Verification (VISA-09)
+- [x] 03-04-PLAN.md — Synthetic Appointment & Document Data
 
 ### Phase 4: Notifications & Admin
 **Goal**: Users receive timely notifications about appointments and document status. Administrators have a full dashboard for user management, query resolution, and progress tracking.
@@ -108,7 +102,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Auth & Role Management | 0/4 | Not started | - |
-| 2. Chatbot & Visa Assessment | 3/4 | In Progress|  |
-| 3. Scheduling & Documents | 0/4 | Not started | - |
-| 4. Notifications & Admin | 0/4 | Not started | - |
+| 1. Auth & Role Management | 4/4 | Complete | 2026-05-14 |
+| 2. Chatbot & Visa Assessment | 4/4 | Complete    | 2026-05-14 |
+| 3. Scheduling & Documents | 4/4 | Complete | 2026-05-14 |
+| 4. Notifications & Admin | 4/4 | Complete | 2026-05-14 |
