@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Button from './ui/Button';
 import SidebarNav from './ui/SidebarNav';
+import ProfileIcon from './ui/ProfileIcon';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { NAV_ITEMS_ADMIN } from '../config/navigation';
@@ -58,11 +59,7 @@ const AdminDashboardOverview = () => {
                 <SidebarNav items={NAV_ITEMS_ADMIN} activeRoute="/admin-dashboard-overview" />
                 <div className="p-6 border-t border-slate-200 dark:border-slate-800">
                     <div className="flex items-center gap-3">
-                        <div className="size-10 rounded-full bg-slate-200 dark:bg-slate-800 bg-center bg-cover" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=AdminDashboardOverview')" }}></div>
-                        <div className="overflow-hidden">
-                            <p className="text-sm font-semibold truncate">{data.admin_name}</p>
-                            <p className="text-xs text-slate-500 truncate">System Admin</p>
-                        </div>
+                        <ProfileIcon size="md" />
                         <span className="material-symbols-outlined text-slate-400 text-sm ml-auto cursor-pointer">logout</span>
                     </div>
                 </div>
@@ -89,7 +86,7 @@ const AdminDashboardOverview = () => {
                             <h2 className="text-3xl font-bold tracking-tight">Overview</h2>
                             <p className="text-slate-500 dark:text-slate-400 mt-1">Real-time system monitoring and automation metrics.</p>
                         </div>
-                        <Button icon="download" onClick={() => {}}>{L.EXPORT}</Button>
+                        <Button icon="download" onClick={() => alert('Export feature coming soon!')}>{L.EXPORT}</Button>
                     </div>
                     {/* Analytics Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

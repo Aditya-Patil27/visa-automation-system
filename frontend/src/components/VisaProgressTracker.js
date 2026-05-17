@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Button from './ui/Button';
 import SidebarNav from './ui/SidebarNav';
+import ProfileIcon from './ui/ProfileIcon';
 import NotificationBell from './NotificationBell';
 import { api } from '../services/api';
 import { L } from '../config/labels';
@@ -71,13 +72,7 @@ const VisaProgressTracker = () => {
                         <div className="flex items-center gap-6">
                             <NotificationBell />
                             <Button variant="icon" icon="settings" />
-                            <div className="flex items-center gap-3 border-l border-primary/10 pl-6">
-                                <div className="text-right">
-                                    <p className="text-xs font-medium text-slate-100 leading-none">Alex Rivera</p>
-                                    <p className="text-[10px] text-slate-500 mt-1">Premium Member</p>
-                                </div>
-                                <img className="w-9 h-9 rounded-full border-2 border-primary/30" alt="User" src="https://i.pravatar.cc/150?u=VisaProgressTracker" />
-                            </div>
+                            <ProfileIcon showName />
                         </div>
                     </header>
                     {/* Content */}

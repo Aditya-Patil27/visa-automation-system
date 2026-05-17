@@ -37,7 +37,8 @@ const DocumentVaultUploadSystem = () => {
             setMyDocs(mydocsRes.documents || []);
             setStatusSummary(mydocsRes.status_summary || {});
         } catch (err) {
-            setError('Failed to load document data.');
+            console.error('Failed to load document data:', err);
+            setError('Failed to load document data. Please ensure the backend server is running.');
         } finally {
             setLoading(false);
         }
@@ -47,8 +48,23 @@ const DocumentVaultUploadSystem = () => {
 
     const handleFileSelect = (file) => {
         if (!file) return;
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+        const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        
+        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(ext)) {
+            setError('Only PDF, JPG, and PNG files are accepted.');
+            return;
+        }
+        
+        if (file.size > 20 * 1024 * 1024) {
+            setError('File size must be less than 20MB.');
+            return;
+        }
+        
         setSelectedFile(file);
         setOcrResult(null);
+        setError('');
     };
 
     const handleConfirmSave = async () => {
@@ -58,17 +74,20 @@ const DocumentVaultUploadSystem = () => {
         }
         setUploading(true);
         setError('');
+        setSuccess('');
         try {
             const formData = new FormData();
             formData.append('file', selectedFile);
             formData.append('document_type', selectedDocType);
-            await api.upload('/documents/upload', formData);
+            const response = await api.upload('/documents/upload', formData);
             setSuccess(`${selectedFile.name} uploaded successfully`);
             setSelectedFile(null);
-            setOcrResult(null);
+            setOcrResult(response);
             fetchData();
         } catch (err) {
-            setError('Upload failed. Please try again.');
+            console.error('Upload error:', err);
+            const message = err.detail || err.message || 'Upload failed. Please try again.';
+            setError(`Upload failed: ${message}`);
         } finally {
             setUploading(false);
         }

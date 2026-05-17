@@ -80,6 +80,7 @@ def doc_to_id(doc: dict) -> dict:
     """Convert MongoDB _id to string id for JSON response."""
     if doc and "_id" in doc:
         doc["id"] = str(doc["_id"])
+        del doc["_id"]
     return doc
 
 

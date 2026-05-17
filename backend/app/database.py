@@ -89,7 +89,11 @@ async def init_db():
 
 
 def doc_to_id(doc: dict) -> dict:
-    """Convert MongoDB _id to string id."""
-    if doc and "_id" in doc:
-        doc["id"] = str(doc["_id"])
-    return doc
+    """Convert MongoDB _id to string id and remove ObjectId."""
+    if not doc:
+        return doc
+    result = dict(doc)
+    if "_id" in result:
+        result["id"] = str(result["_id"])
+        del result["_id"]
+    return result

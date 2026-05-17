@@ -117,12 +117,16 @@ async def chat_endpoint(request: Request, query: dict, user: dict = Depends(get_
     text = query.get("question")
     if not text:
         raise HTTPException(status_code=400, detail="No question provided")
-    session_id = user.get("sub", "")
+    session_id = query.get("session_id", "")
+    if not session_id:
+        import uuid
+        session_id = str(uuid.uuid4())
+    user_email = user.get("sub", "")
     try:
-        answer = await asyncio.wait_for(get_rag_service().invoke(text, session_id=session_id), timeout=30.0)
+        answer = await asyncio.wait_for(get_rag_service().invoke(text, session_id=session_id, user_email=user_email), timeout=30.0)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Chat service timed out")
-    return {"answer": answer}
+    return {"answer": answer, "session_id": session_id}
 
 @router.post("/chat/stream")
 async def chat_stream(request: Request, query: dict, user: dict = Depends(get_current_user)):
@@ -131,10 +135,14 @@ async def chat_stream(request: Request, query: dict, user: dict = Depends(get_cu
     question = query.get("question")
     if not question:
         raise HTTPException(status_code=400, detail="No question provided")
-    session_id = user.get("sub", "")
+    session_id = query.get("session_id", "")
+    if not session_id:
+        import uuid
+        session_id = str(uuid.uuid4())
+    user_email = user.get("sub", "")
     async def event_generator():
         try:
-            async for chunk in get_rag_service().stream(question, session_id):
+            async for chunk in get_rag_service().stream(question, session_id, user_email):
                 yield chunk
         except asyncio.TimeoutError:
             yield f"data: {json.dumps({'error': 'Chat service timed out'})}\n\n"
@@ -145,6 +153,75 @@ async def chat_stream(request: Request, query: dict, user: dict = Depends(get_cu
             yield "data: [DONE]\n\n"
     return StreamingResponse(event_generator(), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"})
+
+@router.get("/chat/sessions")
+async def list_chat_sessions(user: dict = Depends(get_current_user)):
+    """List all chat sessions for the current user."""
+    import pymongo
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+    mongo_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017/visa_db")
+    db_name = os.getenv("DATABASE_NAME", "visa_db")
+    client = pymongo.MongoClient(mongo_url)
+    db = client[db_name]
+    col = db["chat_history"]
+    
+    # Group messages by session_id, get first/last message and timestamps
+    pipeline = [
+        {"$match": {"user_email": user.get("sub", "")}},
+        {"$sort": {"created_at": 1}},
+        {"$group": {
+            "_id": "$session_id",
+            "first_message": {"$first": "$content"},
+            "last_message": {"$last": "$content"},
+            "created_at": {"$first": "$created_at"},
+            "updated_at": {"$last": "$created_at"},
+            "message_count": {"$sum": 1}
+        }},
+        {"$sort": {"updated_at": -1}}
+    ]
+    
+    sessions = list(col.aggregate(pipeline))
+    result = []
+    for s in sessions:
+        title = s["first_message"][:60] + "..." if len(s["first_message"]) > 60 else s["first_message"]
+        result.append({
+            "session_id": s["_id"],
+            "title": title,
+            "created_at": s["created_at"].isoformat() if hasattr(s["created_at"], "isoformat") else str(s["created_at"]),
+            "updated_at": s["updated_at"].isoformat() if hasattr(s["updated_at"], "isoformat") else str(s["updated_at"]),
+            "message_count": s["message_count"]
+        })
+    
+    client.close()
+    return {"sessions": result}
+
+@router.get("/chat/sessions/{session_id}")
+async def get_chat_session(session_id: str, user: dict = Depends(get_current_user)):
+    """Get all messages for a specific chat session."""
+    import pymongo
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+    mongo_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017/visa_db")
+    db_name = os.getenv("DATABASE_NAME", "visa_db")
+    client = pymongo.MongoClient(mongo_url)
+    db = client[db_name]
+    col = db["chat_history"]
+    
+    messages = list(col.find(
+        {"session_id": session_id, "user_email": user.get("sub", "")}
+    ).sort("created_at", 1))
+    
+    result = []
+    for m in messages:
+        result.append({
+            "role": "user" if m["type"] == "human" else "assistant",
+            "content": m["content"],
+            "created_at": m["created_at"].isoformat() if hasattr(m["created_at"], "isoformat") else str(m["created_at"])
+        })
+    
+    client.close()
+    return {"messages": result}
 
 # ── Assessment CRUD ──────────────────────────────────────────────────
 
@@ -251,46 +328,68 @@ async def search_endpoint(query: dict, user: dict = Depends(get_current_user)):
 
 async def _run_ocr(file_bytes: bytes, content_type: str) -> str:
     google_key = os.environ.get("GOOGLE_VISION_API_KEY", "")
-    if not google_key:
-        return _simulate_ocr(content_type)
-    import aiohttp
+    if google_key:
+        import aiohttp
+        try:
+            b64_image = base64.standard_b64encode(file_bytes).decode("utf-8")
+            url = f"https://vision.googleapis.com/v1/images:annotate?key={google_key}"
+            payload = {"requests": [{"image": {"content": b64_image}, "features": [{"type": "TEXT_DETECTION"}]}]}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    result = await response.json()
+                    if "error" in result:
+                        raise HTTPException(status_code=502, detail=f"OCR error: {result['error'].get('message', 'Unknown')}")
+                    responses = result.get("responses", [])
+                    if not responses or not responses[0].get("fullTextAnnotation"):
+                        raise HTTPException(status_code=400, detail="No text detected")
+                    return responses[0]["fullTextAnnotation"]["text"]
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="OCR timed out")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Google Vision OCR failed: %s, falling back to local OCR", e)
+
+    # Fallback: local OCR using pytesseract (free, no API key needed)
+    return await _local_ocr(file_bytes, content_type)
+
+
+async def _local_ocr(file_bytes: bytes, content_type: str) -> str:
+    """Extract text locally using pytesseract (requires tesseract-ocr installed)."""
     try:
-        b64_image = base64.standard_b64encode(file_bytes).decode("utf-8")
-        url = f"https://vision.googleapis.com/v1/images:annotate?key={google_key}"
-        payload = {"requests": [{"image": {"content": b64_image}, "features": [{"type": "TEXT_DETECTION"}]}]}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                result = await response.json()
-                if "error" in result:
-                    raise HTTPException(status_code=502, detail=f"OCR error: {result['error'].get('message', 'Unknown')}")
-                responses = result.get("responses", [])
-                if not responses or not responses[0].get("fullTextAnnotation"):
-                    raise HTTPException(status_code=400, detail="No text detected")
-                return responses[0]["fullTextAnnotation"]["text"]
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="OCR timed out")
-    except HTTPException:
-        raise
+        from PIL import Image
+        import pytesseract
+        import io
+
+        if content_type.startswith("image/"):
+            image = Image.open(io.BytesIO(file_bytes))
+            text = pytesseract.image_to_string(image)
+            if text.strip():
+                return text.strip()
+            return "[No text detected in image]"
+
+        elif content_type == "application/pdf":
+            try:
+                import pdfplumber
+                extracted = []
+                with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            extracted.append(page_text)
+                if extracted:
+                    return "\n\n".join(extracted)
+                return "[No text detected in PDF]"
+            except ImportError:
+                return "[PDF text extraction requires pdfplumber: pip install pdfplumber]"
+
+        else:
+            return f"[Unsupported file type: {content_type}. Please upload JPG, PNG, or PDF files.]"
+    except ImportError:
+        return "[OCR engine not installed. Run: pip install pytesseract pdfplumber Pillow, and install tesseract-ocr on your system.]"
     except Exception as e:
-        logger.error("OCR failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"OCR failed: {str(e)}")
-
-
-def _simulate_ocr(content_type: str) -> str:
-    fname = random.choice(["Rahul", "Priya", "Amit", "Neha", "Arjun", "Sneha", "Vikram", "Ananya"])
-    flast = random.choice(["Sharma", "Verma", "Patel", "Singh", "Kumar", "Reddy", "Mehta", "Joshi"])
-    pp = f"PP{random.randint(100000, 999999)}"
-    dob = f"{random.randint(1, 28):02d}/{random.randint(1, 12):02d}/{random.randint(1970, 2000)}"
-    exp = f"{random.randint(1, 28):02d}/{random.randint(1, 12):02d}/{random.randint(2027, 2032)}"
-    nationalities = ["INDIAN", "AMERICAN", "BRITISH", "CANADIAN", "AUSTRALIAN"]
-    return (
-        f"Name: {fname} {flast}\n"
-        f"Passport No: {pp}\n"
-        f"Date of Birth: {dob}\n"
-        f"Date of Expiry: {exp}\n"
-        f"Nationality: {random.choice(nationalities)}\n"
-        f"Document Type: {content_type}\n"
-        f"[SIMULATED OCR - No Google Vision API key configured]")
+        logger.error("Local OCR failed: %s", e)
+        return f"[OCR processing error: {str(e)}]"
 
 def _extract_fields(ocr_text: str) -> dict:
     fields = {}

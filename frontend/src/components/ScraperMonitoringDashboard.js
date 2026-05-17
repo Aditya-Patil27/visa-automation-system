@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Button from './ui/Button';
+import ProfileIcon from './ui/ProfileIcon';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
@@ -220,11 +221,7 @@ const ScraperMonitoringDashboard = () => {
                     </nav>
                     <div className="p-4 border-t border-slate-200 dark:border-primary/10">
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100 dark:bg-primary/5">
-                            <div className="w-9 h-9 rounded-full bg-cover bg-center border border-primary/20" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=ScraperMonitoringDashboard')" }}></div>
-                            <div className="flex flex-col">
-                                <span className="text-xs font-semibold">Alex Rivera</span>
-                                <span className="text-[10px] text-primary">System Admin</span>
-                            </div>
+                            <ProfileIcon size="sm" />
                             <Button variant="icon" aria-label="Logout" onClick={() => console.log('Logout')}>
                                 <span className="material-symbols-outlined text-[18px]">logout</span>
                             </Button>

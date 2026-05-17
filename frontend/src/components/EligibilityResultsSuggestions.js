@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import Button from './ui/Button';
+import ProfileIcon from './ui/ProfileIcon';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
@@ -119,9 +120,7 @@ const EligibilityResultsSuggestions = () => {
                     </nav>
                     <div className="flex items-center gap-4">
                         <Button variant="icon" icon="notifications" />
-                        <div className="w-10 h-10 rounded-full border-2 border-primary/30 p-0.5">
-                            <img alt="User Avatar" className="rounded-full object-cover w-full h-full" src="https://i.pravatar.cc/150?u=EligibilityResultsSuggestions" />
-                        </div>
+                        <ProfileIcon size="md" />
                     </div>
                 </header>
 

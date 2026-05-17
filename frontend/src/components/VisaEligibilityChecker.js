@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Button from './ui/Button';
+import ProfileIcon from './ui/ProfileIcon';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
@@ -394,11 +395,7 @@ const VisaEligibilityChecker = () => {
                 </nav>
                 <div className="flex items-center gap-4">
                     <Button variant="icon" icon="notifications" />
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-blue-500 p-[2px]">
-                        <div className="w-full h-full rounded-full bg-background-dark flex items-center justify-center overflow-hidden">
-                            <img alt="User" className="w-full h-full object-cover" src="https://i.pravatar.cc/150?u=user" />
-                        </div>
-                    </div>
+                    <ProfileIcon size="sm" />
                 </div>
             </header>
             <main className="max-w-6xl mx-auto px-6 py-12">

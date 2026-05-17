@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Button from './ui/Button';
 import SidebarNav from './ui/SidebarNav';
+import ProfileIcon from './ui/ProfileIcon';
 import NotificationBell from './NotificationBell';
 import { api } from '../services/api';
 import { L } from '../config/labels';
@@ -103,15 +104,7 @@ const UserDashboard = () => {
                         <div className="flex items-center gap-6">
                             <NotificationBell />
                             <Button variant="icon" icon="settings" />
-                            <div className="flex items-center gap-3 pl-6 border-l border-primary/10">
-                                <div className="text-right hidden sm:block">
-                                    <p className="text-sm font-semibold">{data.user_name}</p>
-                                    <p className="text-xs text-slate-500">{data.email}</p>
-                                </div>
-                                <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary/40 overflow-hidden flex items-center justify-center">
-                                    <span className="material-symbols-outlined text-primary">person</span>
-                                </div>
-                            </div>
+                            <ProfileIcon showName />
                         </div>
                     </header>
                     {/* Dashboard Body */}

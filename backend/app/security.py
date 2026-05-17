@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"))
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 import bcrypt
 from jose import JWTError, jwt, ExpiredSignatureError

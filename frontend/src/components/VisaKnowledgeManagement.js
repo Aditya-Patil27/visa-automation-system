@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Button from './ui/Button';
+import ProfileIcon from './ui/ProfileIcon';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
 
 const VisaKnowledgeManagement = () => {
+    const navigate = useNavigate();
     const [visas, setVisas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -191,14 +193,8 @@ const VisaKnowledgeManagement = () => {
                     </nav>
                     <div className="p-6 border-t border-slate-800">
                         <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/50 border border-slate-800">
-                            <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-slate-800">
-                                <img alt="User Avatar" className="w-full h-full object-cover" src="https://i.pravatar.cc/150?u=VisaKnowledgeManagement" />
-                            </div>
-                            <div className="overflow-hidden">
-                                <p className="text-sm font-semibold truncate">Admin User</p>
-                                <p className="text-xs text-slate-500 truncate">Administrator</p>
-                            </div>
-                            <span onClick={() => { localStorage.removeItem('access_token'); window.location.href = '/login'; }} className="material-symbols-outlined text-slate-500 ml-auto cursor-pointer hover:text-primary">logout</span>
+                            <ProfileIcon size="md" />
+                            <span onClick={() => { localStorage.removeItem('access_token'); localStorage.removeItem('user_profile'); navigate('/login'); }} className="material-symbols-outlined text-slate-500 ml-auto cursor-pointer hover:text-primary">logout</span>
                         </div>
                     </div>
                 </aside>

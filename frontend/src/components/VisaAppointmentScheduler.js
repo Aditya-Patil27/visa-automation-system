@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Button from './ui/Button';
+import ProfileIcon from './ui/ProfileIcon';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
@@ -152,9 +153,7 @@ const VisaAppointmentScheduler = () => {
                 </div>
                 <div className="flex gap-2 items-center">
                     <Button variant="icon" icon="notifications" aria-label="Notifications" />
-                    <div className="w-10 h-10 rounded-full border-2 border-primary/20 p-0.5">
-                        <div className="w-full h-full rounded-full bg-cover bg-center" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=VisaAppointmentScheduler')" }}></div>
-                    </div>
+                    <ProfileIcon size="md" />
                 </div>
             </header>
             {error && (

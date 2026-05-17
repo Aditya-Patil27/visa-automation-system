@@ -1,13 +1,14 @@
 import json
 import os
 import logging
-from typing import List, Tuple, AsyncGenerator
+from typing import List, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.chat_message_histories import SQLChatMessageHistory
+from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
+from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough
@@ -61,6 +62,20 @@ def load_vectorstore():
         )
     else:
         _vectorstore = FAISS.from_texts([""], embeddings)
+
+    # Move FAISS index to GPU if available
+    try:
+        import faiss
+        import faiss.contrib.torch_utils
+        if faiss.get_num_gpus() > 0:
+            res = faiss.StandardGpuResources()
+            index = _vectorstore.index
+            if not isinstance(index, faiss.GpuIndex):
+                _vectorstore.index = faiss.index_cpu_to_gpu(res, 0, index)
+                logger.info("FAISS index moved to GPU")
+    except Exception as e:
+        logger.debug("GPU Faiss not available, using CPU: %s", e)
+
     return _vectorstore
 
 
@@ -82,9 +97,81 @@ def semantic_search(question: str, k: int = 5) -> List[dict]:
     ]
 
 
+# ── MongoDB-backed chat history ─────────────────────────────────────────
+class MongoDBChatMessageHistory(BaseChatMessageHistory):
+    """Chat message history stored in MongoDB."""
+
+    def __init__(self, session_id: str, user_email: str = "", collection=None):
+        self.session_id = session_id
+        self.user_email = user_email
+        self._collection = collection
+        self._messages: List[BaseMessage] = []
+        self._load_messages()
+
+    def _get_collection(self):
+        if self._collection is None:
+            import pymongo
+            from dotenv import load_dotenv
+            load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+            mongo_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017/visa_db")
+            client = pymongo.MongoClient(mongo_url)
+            db_name = os.getenv("DATABASE_NAME", "visa_db")
+            self._collection = client[db_name]["chat_history"]
+        return self._collection
+
+    def _load_messages(self):
+        try:
+            col = self._get_collection()
+            query = {"session_id": self.session_id}
+            if self.user_email:
+                query["user_email"] = self.user_email
+            cursor = col.find(query).sort("created_at", 1)
+            self._messages = []
+            for doc in cursor:
+                if doc["type"] == "human":
+                    self._messages.append(HumanMessage(content=doc["content"]))
+                elif doc["type"] == "ai":
+                    self._messages.append(AIMessage(content=doc["content"]))
+        except Exception as e:
+            logger.warning("Failed to load chat history from MongoDB: %s", e)
+            self._messages = []
+
+    @property
+    def messages(self) -> List[BaseMessage]:
+        return self._messages
+
+    @messages.setter
+    def messages(self, value: List[BaseMessage]):
+        self._messages = value
+
+    def add_message(self, message: BaseMessage) -> None:
+        self._messages.append(message)
+        try:
+            col = self._get_collection()
+            from datetime import datetime
+            msg_type = "human" if isinstance(message, HumanMessage) else "ai"
+            col.insert_one({
+                "session_id": self.session_id,
+                "user_email": self.user_email,
+                "type": msg_type,
+                "content": message.content,
+                "created_at": datetime.utcnow(),
+            })
+        except Exception as e:
+            logger.warning("Failed to save chat message to MongoDB: %s", e)
+
+    def clear(self) -> None:
+        self._messages = []
+        try:
+            col = self._get_collection()
+            col.delete_many({"session_id": self.session_id})
+        except Exception as e:
+            logger.warning("Failed to clear chat history in MongoDB: %s", e)
+
+
 # ── RAGChatService (LCEL chain with memory + streaming) ─────────────────
 class RAGChatService:
-    """LCEL-based RAG pipeline with persisted SQLite chat memory and SSE
+    """LCEL-based RAG pipeline with persisted MongoDB chat memory and SSE
     token streaming."""
 
     def __init__(self):
@@ -96,12 +183,8 @@ class RAGChatService:
         return load_vectorstore()
 
     # ------------------------------------------------------------------
-    def _get_session_history(self, session_id: str):
-        history = SQLChatMessageHistory(
-            session_id=session_id,
-            connection_string="sqlite+aiosqlite:///chat_history.db",
-            table_name="chat_history",
-        )
+    def _get_session_history(self, session_id: str, user_email: str = ""):
+        history = MongoDBChatMessageHistory(session_id=session_id, user_email=user_email)
         # Sliding window: keep at most the last 20 messages (≈10 exchanges)
         if len(history.messages) > 20:
             history.messages = history.messages[-20:]
@@ -114,7 +197,7 @@ class RAGChatService:
 
     # ------------------------------------------------------------------
     def _build_chains(self):
-        llm = ChatGroq(
+        self.llm = ChatGroq(
             groq_api_key=self.settings.groq_api_key,
             model="llama-3.1-8b-instant",
             temperature=0.2,
@@ -124,7 +207,9 @@ class RAGChatService:
         rag_prompt = ChatPromptTemplate.from_messages([
             ("system", "You are a visa consultation assistant. "
                        "Use the provided context to answer visa-related "
-                       "questions concisely and accurately.\n\n"
+                       "questions concisely and accurately. "
+                       "IMPORTANT: Output plain text only. Do NOT use markdown, asterisks, bold, italics, or any formatting symbols. "
+                       "Use bullet points with dashes (-) for lists.\n\n"
                        "Context:\n{context}"),
             MessagesPlaceholder(variable_name="history"),
             ("human", "{question}"),
@@ -136,36 +221,74 @@ class RAGChatService:
                 context=lambda x: self._retrieve(x["question"])
             )
             | rag_prompt
-            | llm
+            | self.llm
             | StrOutputParser()
         )
 
-        self.chain_with_memory = RunnableWithMessageHistory(
-            rag_chain,
-            self._get_session_history,
-            input_messages_key="question",
-            history_messages_key="history",
-        )
+        self.rag_chain = rag_chain
+        self.prompt_template = rag_prompt
 
     # ------------------------------------------------------------------
-    async def invoke(self, question: str, session_id: str) -> str:
-        return await self.chain_with_memory.ainvoke(
-            {"question": question},
-            config={"configurable": {"session_id": session_id}},
-        )
+    async def invoke(self, question: str, session_id: str, user_email: str = "") -> str:
+        history = self._get_session_history(session_id, user_email)
+        context = await self._retrieve(question)
+
+        messages = [
+            ("system", "You are a visa consultation assistant. "
+                       "ONLY answer visa-related questions (travel documents, eligibility, requirements, processing times, fees, interviews, etc.). "
+                       "If the question is NOT related to visas, travel, or immigration, respond with: "
+                       "'I can only help with visa and travel-related questions. Please ask about visa requirements, documents, eligibility, or travel procedures.'\n\n"
+                       "If the provided context is empty or not relevant, say: "
+                       "'I do not have specific information about that in my database yet. However, I recommend checking the official embassy website for the most accurate information.'\n\n"
+                       "IMPORTANT: Output plain text only. Do NOT use markdown, asterisks, bold, italics, or any formatting symbols. "
+                       "Use bullet points with dashes (-) for lists.\n\n"
+                       f"Context:\n{context}"),
+        ]
+        for msg in history.messages:
+            messages.append(msg)
+        messages.append(("human", question))
+
+        response = await self.llm.ainvoke(messages)
+        full_response = response.content
+
+        # Save to history
+        history.add_message(HumanMessage(content=question))
+        history.add_message(AIMessage(content=full_response))
+        return full_response
 
     # ------------------------------------------------------------------
-    async def stream(self, question: str, session_id: str) -> AsyncGenerator[str, None]:
-        async for event in self.chain_with_memory.astream_events(
-            {"question": question},
-            config={"configurable": {"session_id": session_id}},
-            version="v1",
-            include=["on_chat_model_stream"],
-        ):
-            if event["event"] == "on_chat_model_stream":
-                chunk = event["data"]["chunk"]
+    async def stream(self, question: str, session_id: str, user_email: str = "") -> AsyncGenerator[str, None]:
+        try:
+            history = self._get_session_history(session_id, user_email)
+            context = await self._retrieve(question)
+
+            messages = [
+                ("system", "You are a visa consultation assistant. "
+                           "ONLY answer visa-related questions (travel documents, eligibility, requirements, processing times, fees, interviews, etc.). "
+                           "If the question is NOT related to visas, travel, or immigration, respond with: "
+                           "'I can only help with visa and travel-related questions. Please ask about visa requirements, documents, eligibility, or travel procedures.'\n\n"
+                           "If the provided context is empty or not relevant, say: "
+                           "'I do not have specific information about that in my database yet. However, I recommend checking the official embassy website for the most accurate information.'\n\n"
+                           "IMPORTANT: Output plain text only. Do NOT use markdown, asterisks, bold, italics, or any formatting symbols. "
+                           "Use bullet points with dashes (-) for lists.\n\n"
+                           f"Context:\n{context}"),
+            ]
+            for msg in history.messages:
+                messages.append(msg)
+            messages.append(("human", question))
+
+            full_response = ""
+            async for chunk in self.llm.astream(messages):
                 if chunk.content:
+                    full_response += chunk.content
                     yield f"data: {json.dumps({'token': chunk.content})}\n\n"
+
+            # Save to history
+            history.add_message(HumanMessage(content=question))
+            history.add_message(AIMessage(content=full_response))
+        except Exception as e:
+            logger.error("Stream error: %s", e)
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield "data: [DONE]\n\n"
 
 

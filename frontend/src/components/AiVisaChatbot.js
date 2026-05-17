@@ -1,9 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from './ui/Button';
+import ProfileIcon from './ui/ProfileIcon';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
+
+const stripMarkdown = (text) => {
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/__(.*?)__/g, '$1')
+        .replace(/_(.*?)_/g, '$1')
+        .replace(/`(.*?)`/g, '$1')
+        .replace(/#{1,6}\s?/g, '')
+        .replace(/\[(.*?)\]\(.*?\)/g, '$1');
+};
 
 const AiVisaChatbot = () => {
     const [messages, setMessages] = useState([
@@ -23,6 +35,8 @@ const AiVisaChatbot = () => {
         nationality: '', has_passport: true, has_prior_visa: false,
         criminal_record: false, has_ties: true
     });
+    const [chatSessions, setChatSessions] = useState([]);
+    const [activeSessionId, setActiveSessionId] = useState(null);
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
     const navigate = useNavigate();
@@ -34,6 +48,58 @@ const AiVisaChatbot = () => {
     useEffect(() => {
         scrollToBottom();
     }, [messages, loading]);
+
+    useEffect(() => {
+        fetchChatSessions();
+        setActiveSessionId(generateSessionId());
+    }, []);
+
+    const generateSessionId = () => {
+        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    };
+
+    const fetchChatSessions = async () => {
+        try {
+            const token = localStorage.getItem('access_token');
+            if (!token) return;
+            const res = await fetch('http://localhost:8000/chat/sessions', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setChatSessions(data.sessions || []);
+            }
+        } catch (err) {
+            console.error('Failed to fetch chat sessions:', err);
+        }
+    };
+
+    const loadChatSession = async (sessionId) => {
+        try {
+            const token = localStorage.getItem('access_token');
+            if (!token) return;
+            const res = await fetch(`http://localhost:8000/chat/sessions/${sessionId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.messages && data.messages.length > 0) {
+                    setMessages(data.messages);
+                    setActiveSessionId(sessionId);
+                    setEligibilityMode(false);
+                }
+            }
+        } catch (err) {
+            console.error('Failed to load chat session:', err);
+        }
+    };
+
+    const startNewChat = () => {
+        setMessages([{ role: 'assistant', content: "Hello! I'm your dedicated VisaAI assistant. What's your next destination?" }]);
+        setActiveSessionId(generateSessionId());
+        setEligibilityMode(false);
+        setInput('');
+    };
 
     const handleSend = async (overrideText) => {
         const textToSend = overrideText || input;
@@ -105,73 +171,112 @@ const AiVisaChatbot = () => {
                 return;
             }
 
-            const res = await fetch('http://localhost:8000/chat/stream', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ question: textToSend })
-            });
-
-            if (!res.ok) {
-                if (res.status === 401) {
-                    navigate('/login');
-                    return;
-                }
-                setMessages(prev => {
-                    const msgs = [...prev];
-                    msgs[msgs.length - 1] = { role: 'assistant', content: "Sorry, I encountered an error while processing your request." };
-                    return msgs;
+            let fullResponse = '';
+            let res;
+            try {
+                res = await fetch('http://localhost:8000/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ question: textToSend, session_id: activeSessionId })
                 });
-                return;
+            } catch (streamErr) {
+                console.warn('Stream connection failed, falling back to non-streaming:', streamErr);
+                res = null;
             }
 
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let fullResponse = '';
-            let streamDone = false;
+            if (res && res.ok) {
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let streamDone = false;
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
 
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed) continue;
-                    if (trimmed.startsWith('data: ')) {
-                        const dataStr = trimmed.slice(6);
-                        if (dataStr === '[DONE]') {
-                            streamDone = true;
-                            break;
-                        }
-                        try {
-                            const parsed = JSON.parse(dataStr);
-                            if (parsed.token) {
-                                fullResponse += parsed.token;
-                                setMessages(prev => {
-                                    const msgs = [...prev];
-                                    const last = { ...msgs[msgs.length - 1] };
-                                    last.content += parsed.token;
-                                    msgs[msgs.length - 1] = last;
-                                    return msgs;
-                                });
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed) continue;
+                        if (trimmed.startsWith('data: ')) {
+                            const dataStr = trimmed.slice(6);
+                            if (dataStr === '[DONE]') {
+                                streamDone = true;
+                                break;
                             }
-                        } catch (_) {
-                            // Skip malformed JSON lines
+                            try {
+                                const parsed = JSON.parse(dataStr);
+                                if (parsed.token) {
+                                    fullResponse += parsed.token;
+                                    setMessages(prev => {
+                                        const msgs = [...prev];
+                                        const last = { ...msgs[msgs.length - 1] };
+                                        last.content += parsed.token;
+                                        msgs[msgs.length - 1] = last;
+                                        return msgs;
+                                    });
+                                } else if (parsed.error) {
+                                    setMessages(prev => {
+                                        const msgs = [...prev];
+                                        msgs[msgs.length - 1] = { role: 'assistant', content: `Error: ${parsed.error}` };
+                                        return msgs;
+                                    });
+                                    streamDone = true;
+                                    break;
+                                }
+                            } catch (_) {
+                                // Skip malformed JSON lines
+                            }
                         }
                     }
+                    if (streamDone) break;
                 }
-                if (streamDone) break;
+
+                if (!fullResponse) {
+                    setMessages(prev => {
+                        const msgs = [...prev];
+                        msgs[msgs.length - 1] = { role: 'assistant', content: "Sorry, I received an empty response. Please try again." };
+                        return msgs;
+                    });
+                }
+            } else if (res && res.status === 401) {
+                navigate('/login');
+                return;
+            } else {
+                console.warn('Stream failed with status:', res?.status, 'falling back to non-streaming');
+                const fallbackRes = await fetch('http://localhost:8000/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ question: textToSend, session_id: activeSessionId })
+                });
+                if (fallbackRes.ok) {
+                    const data = await fallbackRes.json();
+                    setMessages(prev => {
+                        const msgs = [...prev];
+                        msgs[msgs.length - 1] = { role: 'assistant', content: data.answer || "No response received." };
+                        return msgs;
+                    });
+                    fullResponse = data.answer || '';
+                } else {
+                    setMessages(prev => {
+                        const msgs = [...prev];
+                        msgs[msgs.length - 1] = { role: 'assistant', content: "Sorry, I encountered an error while processing your request. Please try again later." };
+                        return msgs;
+                    });
+                }
             }
 
             // Dynamic suggestion chips update based on response context
-            const lower = fullResponse.toLowerCase();
+            const lower = (fullResponse || '').toLowerCase();
             if (lower.includes('france') || lower.includes('schengen') || lower.includes('europe')) {
                 setSuggestionChips([
                     "What documents do I need for Schengen?",
@@ -195,14 +300,15 @@ const AiVisaChatbot = () => {
                 ]);
             }
         } catch (err) {
-            console.error(err);
+            console.error('Chat error:', err);
             setMessages(prev => {
                 const msgs = [...prev];
-                msgs[msgs.length - 1] = { role: 'assistant', content: "Network error. Please try again later." };
+                msgs[msgs.length - 1] = { role: 'assistant', content: "Network error. Please check if the backend server is running on port 8000 and try again." };
                 return msgs;
             });
         } finally {
             setLoading(false);
+            fetchChatSessions();
         }
     };
 
@@ -217,7 +323,22 @@ const AiVisaChatbot = () => {
     const handleAttachFile = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        setMessages(prev => [...prev, { role: 'user', content: `📎 Uploading: ${file.name}` }]);
+        const fileName = file.name;
+        e.target.value = '';
+
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+        const ext = '.' + fileName.split('.').pop().toLowerCase();
+        const allowedExts = ['.jpg', '.jpeg', '.png', '.pdf'];
+        if (!allowedTypes.includes(file.type) && !allowedExts.includes(ext)) {
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Only JPG, PNG, and PDF files are accepted.' }]);
+            return;
+        }
+        if (file.size > 20 * 1024 * 1024) {
+            setMessages(prev => [...prev, { role: 'assistant', content: 'File size must be less than 20MB.' }]);
+            return;
+        }
+
+        setMessages(prev => [...prev, { role: 'user', content: `📎 Uploaded: ${fileName}` }]);
         setLoading(true);
         try {
             const token = localStorage.getItem('access_token');
@@ -231,33 +352,27 @@ const AiVisaChatbot = () => {
             });
             if (res.ok) {
                 const data = await res.json();
-                
-                if (data.ocr_text && data.ocr_text.includes('[OCR error')) {
-                    setMessages(prev => [...prev, { role: 'assistant', content: `❌ **Document scan failed for ${data.filename}:**\n\n${data.ocr_text}` }]);
-                    return;
-                }
-
-                let msg = `📄 **OCR Results for ${data.filename}:**\n\n`;
-                if (data.extracted_fields && Object.keys(data.extracted_fields).length > 0) {
-                    const fields = data.extracted_fields;
-                    if (fields.full_name) msg += `• Name: ${fields.full_name}\n`;
-                    if (fields.passport_number) msg += `• Passport: ${fields.passport_number}\n`;
-                    if (fields.nationality) msg += `• Nationality: ${fields.nationality}\n`;
-                    if (fields.dates_found) msg += `• Dates: ${fields.dates_found.join(', ')}\n`;
-                }
-                if (data.ocr_text) {
-                    msg += `\nExtracted Text:\n${data.ocr_text}`;
-                }
-                setMessages(prev => [...prev, { role: 'assistant', content: msg }]);
+                const fields = data.extracted_fields || {};
+                let lines = [`📄 OCR Results for ${fileName}:`];
+                if (fields.full_name) lines.push(`• Name: ${fields.full_name}`);
+                if (fields.passport_number) lines.push(`• Passport: ${fields.passport_number}`);
+                if (fields.nationality) lines.push(`• Nationality: ${fields.nationality}`);
+                if (fields.dates_found) lines.push(`• Dates: ${fields.dates_found.join(', ')}`);
+                if (data.ocr_text) lines.push(`\nExtracted Text:\n${data.ocr_text}`);
+                setMessages(prev => [...prev, { role: 'assistant', content: lines.join('\n') }]);
             } else {
-                setMessages(prev => [...prev, { role: 'assistant', content: "Failed to process the uploaded file." }]);
+                let errMsg = 'Failed to process file.';
+                try {
+                    const errData = await res.json();
+                    errMsg = errData.detail || errMsg;
+                } catch {}
+                setMessages(prev => [...prev, { role: 'assistant', content: errMsg }]);
             }
         } catch (err) {
-            console.error(err);
-            setMessages(prev => [...prev, { role: 'assistant', content: "Error uploading file. Please try again." }]);
+            console.error('Upload error:', err);
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Error uploading file. Check that the backend is running on port 8000.' }]);
         } finally {
             setLoading(false);
-            e.target.value = '';
         }
     };
 
@@ -283,7 +398,7 @@ const AiVisaChatbot = () => {
                     </div>
                     <div className="px-4 mb-4">
                         <Button variant="secondary" className="w-full justify-start" icon="add_circle"
-                            onClick={() => { setMessages([{ role: 'assistant', content: "Hello! I'm your dedicated VisaAI assistant. What's your next destination?" }]); setInput(''); }}>
+                            onClick={startNewChat}>
                             {L.NEW_CONSULTATION}
                         </Button>
                     </div>
@@ -291,22 +406,25 @@ const AiVisaChatbot = () => {
                         <div>
                             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 px-2">History</h3>
                             <div className="space-y-1">
-                                <Button variant="nav" className="bg-primary/5 text-primary border border-primary/10" onClick={() => {}}>
-                                    <span className="material-symbols-outlined text-xl">chat_bubble</span>
-                                    <span className="text-sm truncate">General Visa Requirements</span>
-                                </Button>
-                                <Button variant="nav" onClick={() => {}}>
-                                    <span className="material-symbols-outlined text-xl">chat_bubble</span>
-                                    <span className="text-sm truncate">Schengen Eligibility Check</span>
-                                </Button>
-                                <Button variant="nav" onClick={() => {}}>
-                                    <span className="material-symbols-outlined text-xl">chat_bubble</span>
-                                    <span className="text-sm truncate">US B1/B2 Interview Prep</span>
-                                </Button>
-                                <Button variant="nav" onClick={() => {}}>
-                                    <span className="material-symbols-outlined text-xl">chat_bubble</span>
-                                    <span className="text-sm truncate">Digital Nomad Portugal</span>
-                                </Button>
+                                {chatSessions.length === 0 ? (
+                                    <p className="text-xs text-slate-500 px-2">No conversations yet</p>
+                                ) : (
+                                    chatSessions.map((session) => (
+                                        <button
+                                            key={session.session_id}
+                                            onClick={() => loadChatSession(session.session_id)}
+                                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all ${
+                                                activeSessionId === session.session_id
+                                                    ? 'bg-primary/5 text-primary border border-primary/10'
+                                                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            <span className="material-symbols-outlined text-xl shrink-0">chat_bubble</span>
+                                            <span className="text-sm truncate flex-1">{session.title}</span>
+                                            <span className="text-[10px] text-slate-600 shrink-0">{session.message_count}</span>
+                                        </button>
+                                    ))
+                                )}
                             </div>
                         </div>
                         <div className="mt-8">
@@ -314,14 +432,7 @@ const AiVisaChatbot = () => {
                         </div>
                     </nav>
                     <div className="p-4 border-t border-slate-200 dark:border-primary/10">
-                        <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100 dark:bg-primary/5">
-                            <img className="w-10 h-10 rounded-full object-cover" alt="User profile avatar" src="https://i.pravatar.cc/150?u=AiVisaChatbot" />
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold truncate">Alex Johnson</p>
-                                <p className="text-xs text-slate-500 dark:text-primary/60">Premium Member</p>
-                            </div>
-                            <span className="material-symbols-outlined text-slate-400 cursor-pointer hover:text-primary">settings</span>
-                        </div>
+                        <ProfileIcon showName className="p-2 rounded-xl bg-slate-100 dark:bg-primary/5 w-full" />
                     </div>
                 </aside>
                 {/* Main Content Area */}
@@ -365,13 +476,13 @@ const AiVisaChatbot = () => {
                                     </span>
                                 </div>
                                 <div className={`space-y-2 ${msg.role === 'user' ? 'text-right' : ''}`}>
-                                    <div className={`px-5 py-4 shadow-sm ${
-                                        msg.role === 'user' 
-                                            ? 'bg-slate-200 dark:bg-slate-800 rounded-2xl rounded-tr-none' 
-                                            : 'bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/20 rounded-2xl rounded-tl-none'
-                                    }`}>
-                                        <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                                    </div>
+                    <div className={`px-5 py-4 shadow-sm ${
+                        msg.role === 'user' 
+                            ? 'bg-slate-200 dark:bg-slate-800 rounded-2xl rounded-tr-none' 
+                            : 'bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/20 rounded-2xl rounded-tl-none'
+                    }`}>
+                        <p className="leading-relaxed whitespace-pre-wrap">{stripMarkdown(msg.content)}{loading && idx === messages.length - 1 && msg.role === 'assistant' && <span className="inline-block w-2 h-4 bg-primary ml-0.5 animate-pulse">|</span>}</p>
+                    </div>
                                 </div>
                             </div>
                         ))}

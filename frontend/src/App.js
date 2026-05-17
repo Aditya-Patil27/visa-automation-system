@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { UserProvider } from './context/UserContext';
 import LandingPage from './components/LandingPage';
 import ActivityLogs from './components/ActivityLogs';
 import AdminDashboardOverview from './components/AdminDashboardOverview';
@@ -28,36 +29,40 @@ function App() {
     setRole(newRole);
     localStorage.setItem('access_token', newToken);
     localStorage.setItem('user_role', newRole);
+    localStorage.removeItem('user_profile');
   };
 
   return (
     <Router>
-      <Routes>
+      <UserProvider>
+        <Routes>
         <Route path="/" element={<LandingPageWrapper />} />
         <Route path="/login" element={<AuthPage onLogin={handleLogin} />} />
         <Route path="/register" element={<AuthPage onLogin={handleLogin} />} />
-        <Route path="/activity-logs" element={<ProtectedRoute token={token}><ActivityLogs /></ProtectedRoute>} />
-        <Route path="/admin-dashboard-overview" element={<ProtectedRoute token={token}><AdminDashboardOverview /></ProtectedRoute>} />
-        <Route path="/ai-visa-chatbot" element={<ProtectedRoute token={token}><AiVisaChatbot /></ProtectedRoute>} />
-        <Route path="/user-dashboard" element={<ProtectedRoute token={token}><UserDashboard /></ProtectedRoute>} />
-        <Route path="/visa-eligibility-checker" element={<ProtectedRoute token={token}><VisaEligibilityChecker /></ProtectedRoute>} />
-        <Route path="/visa-knowledge-management" element={<ProtectedRoute token={token}><VisaKnowledgeManagement /></ProtectedRoute>} />
-        <Route path="/visa-progress-tracker" element={<ProtectedRoute token={token}><VisaProgressTracker /></ProtectedRoute>} />
-        <Route path="/tracking-simulation" element={<ProtectedRoute token={token}><TrackingSimulation /></ProtectedRoute>} />
-        <Route path="/admin-document-review" element={<ProtectedRoute token={token}><AdminDocumentReview /></ProtectedRoute>} />
-        <Route path="/approval-workflow" element={<ProtectedRoute token={token}><ApprovalWorkflow /></ProtectedRoute>} />
-        <Route path="/document-vault-upload-system" element={<ProtectedRoute token={token}><DocumentVaultUploadSystem /></ProtectedRoute>} />
-        <Route path="/eligibility-results-suggestions" element={<ProtectedRoute token={token}><EligibilityResultsSuggestions /></ProtectedRoute>} />
-        <Route path="/scraper-monitoring-dashboard" element={<ProtectedRoute token={token}><ScraperMonitoringDashboard /></ProtectedRoute>} />
-        <Route path="/visa-appointment-scheduler" element={<ProtectedRoute token={token}><VisaAppointmentScheduler /></ProtectedRoute>} />
-        <Route path="/support-tickets" element={<ProtectedRoute token={token}><QuerySupportTicket /></ProtectedRoute>} />
+        <Route path="/activity-logs" element={<ProtectedRoute><ActivityLogs /></ProtectedRoute>} />
+        <Route path="/admin-dashboard-overview" element={<ProtectedRoute><AdminDashboardOverview /></ProtectedRoute>} />
+        <Route path="/ai-visa-chatbot" element={<ProtectedRoute><AiVisaChatbot /></ProtectedRoute>} />
+        <Route path="/user-dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
+        <Route path="/visa-eligibility-checker" element={<ProtectedRoute><VisaEligibilityChecker /></ProtectedRoute>} />
+        <Route path="/visa-knowledge-management" element={<ProtectedRoute><VisaKnowledgeManagement /></ProtectedRoute>} />
+        <Route path="/visa-progress-tracker" element={<ProtectedRoute><VisaProgressTracker /></ProtectedRoute>} />
+        <Route path="/tracking-simulation" element={<ProtectedRoute><TrackingSimulation /></ProtectedRoute>} />
+        <Route path="/admin-document-review" element={<ProtectedRoute><AdminDocumentReview /></ProtectedRoute>} />
+        <Route path="/approval-workflow" element={<ProtectedRoute><ApprovalWorkflow /></ProtectedRoute>} />
+        <Route path="/document-vault-upload-system" element={<ProtectedRoute><DocumentVaultUploadSystem /></ProtectedRoute>} />
+        <Route path="/eligibility-results-suggestions" element={<ProtectedRoute><EligibilityResultsSuggestions /></ProtectedRoute>} />
+        <Route path="/scraper-monitoring-dashboard" element={<ProtectedRoute><ScraperMonitoringDashboard /></ProtectedRoute>} />
+        <Route path="/visa-appointment-scheduler" element={<ProtectedRoute><VisaAppointmentScheduler /></ProtectedRoute>} />
+        <Route path="/support-tickets" element={<ProtectedRoute><QuerySupportTicket /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
+      </UserProvider>
     </Router>
   );
 }
 
-function ProtectedRoute({ token, children }) {
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem('access_token');
   if (!token) {
     return <Navigate to="/login" replace />;
   }

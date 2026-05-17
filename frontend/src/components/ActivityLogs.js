@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import Button from './ui/Button';
+import ProfileIcon from './ui/ProfileIcon';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
 
@@ -43,11 +44,7 @@ const ActivityLogs = () => {
                     </nav>
                     <div className="p-4 mt-auto border-t border-slate-200 dark:border-slate-800">
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-100/50 dark:bg-slate-800/50">
-                            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 bg-cover bg-center" style={{ backgroundImage: "url('https://i.pravatar.cc/150?u=ActivityLogs')" }}></div>
-                            <div className="flex-1 overflow-hidden">
-                                <p className="text-xs font-bold truncate">Marcus Thorne</p>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">Head Admin</p>
-                            </div>
+                            <ProfileIcon size="md" />
                             <span className="material-symbols-outlined text-slate-400 text-sm">unfold_more</span>
                         </div>
                     </div>

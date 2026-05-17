@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Button from './ui/Button';
 import { GoogleLogin } from '@react-oauth/google';
 
@@ -7,6 +8,7 @@ import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
 
 const AuthPage = ({ onLogin }) => {
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,14 +33,14 @@ const AuthPage = ({ onLogin }) => {
         if (data.access_token) {
           const payload = JSON.parse(atob(data.access_token.split('.')[1]));
           onLogin(data.access_token, payload.role);
-          window.location.href = payload.role === 'admin' ? ROUTES.ADMIN_DASHBOARD : ROUTES.USER_DASHBOARD;
+          navigate(payload.role === 'admin' ? ROUTES.ADMIN_DASHBOARD : ROUTES.USER_DASHBOARD);
         }
       } else {
         const data = await api.post('/register', { email, password });
         if (data.access_token) {
           const payload = JSON.parse(atob(data.access_token.split('.')[1]));
           onLogin(data.access_token, payload.role);
-          window.location.href = ROUTES.USER_DASHBOARD;
+          navigate(ROUTES.USER_DASHBOARD);
         }
       }
     } catch (err) {
@@ -63,7 +65,7 @@ const AuthPage = ({ onLogin }) => {
       if (data.access_token) {
         const payload = JSON.parse(atob(data.access_token.split('.')[1]));
         onLogin(data.access_token, payload.role);
-        window.location.href = payload.role === 'admin' ? ROUTES.ADMIN_DASHBOARD : ROUTES.USER_DASHBOARD;
+        navigate(payload.role === 'admin' ? ROUTES.ADMIN_DASHBOARD : ROUTES.USER_DASHBOARD);
       }
     } catch (err) {
       setError(err.detail || err.message || 'Google Login failed');
