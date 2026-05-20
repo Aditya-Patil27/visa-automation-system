@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { UserProvider } from './context/UserContext';
 import LandingPage from './components/LandingPage';
@@ -18,6 +18,10 @@ import VisaProgressTracker from './components/VisaProgressTracker';
 import TrackingSimulation from './components/TrackingSimulation';
 import AuthPage from './components/AuthPage';
 import QuerySupportTicket from './components/QuerySupportTicket';
+import VisaMarketplace from './components/VisaMarketplace';
+import VisaDetails from './components/VisaDetails';
+import ApplyVisa from './components/ApplyVisa';
+import MyApplications from './components/MyApplications';
 import { api } from './services/api';
 
 function App() {
@@ -30,6 +34,7 @@ function App() {
     localStorage.setItem('access_token', newToken);
     localStorage.setItem('user_role', newRole);
     localStorage.removeItem('user_profile');
+    window.dispatchEvent(new Event('auth-change'));
   };
 
   return (
@@ -53,8 +58,12 @@ function App() {
         <Route path="/eligibility-results-suggestions" element={<ProtectedRoute><EligibilityResultsSuggestions /></ProtectedRoute>} />
         <Route path="/scraper-monitoring-dashboard" element={<ProtectedRoute><ScraperMonitoringDashboard /></ProtectedRoute>} />
         <Route path="/visa-appointment-scheduler" element={<ProtectedRoute><VisaAppointmentScheduler /></ProtectedRoute>} />
-        <Route path="/support-tickets" element={<ProtectedRoute><QuerySupportTicket /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/" />} />
+          <Route path="/support-tickets" element={<ProtectedRoute><QuerySupportTicket /></ProtectedRoute>} />
+          <Route path="/visa-marketplace" element={<ProtectedRoute><VisaMarketplace /></ProtectedRoute>} />
+          <Route path="/visa/:id" element={<ProtectedRoute><VisaDetails /></ProtectedRoute>} />
+          <Route path="/apply/:visa_id" element={<ProtectedRoute><ApplyVisa /></ProtectedRoute>} />
+          <Route path="/my-applications" element={<ProtectedRoute><MyApplications /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/" />} />
       </Routes>
       </UserProvider>
     </Router>

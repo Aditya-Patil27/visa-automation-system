@@ -20,6 +20,7 @@ COLL_NOTIFICATIONS = "notifications"
 COLL_NOTIFICATION_PREFS = "notification_preferences"
 COLL_RESET_TOKENS = "reset_tokens"
 COLL_SCRAPER_LOGS = "scraper_logs"
+COLL_APPLICATIONS = "applications"
 
 
 # ── Pydantic Models (API Layer) ──────────────────────────────────────
@@ -72,6 +73,24 @@ class AppointmentCreate(BaseModel):
 class DocumentReview(BaseModel):
     status: str = Field(..., pattern="^(approved|rejected)$")
     reviewer_notes: str = ""
+
+
+class ApplicationCreate(BaseModel):
+    visa_id: str
+    applicant_name: str
+    applicant_email: EmailStr
+    applicant_passport: str
+    applicant_nationality: str
+    purpose: str
+    intended_stay_days: int
+    travel_date: str
+    documents_submitted: List[str] = []
+    notes: str = ""
+
+
+class ApplicationStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(pending|submitted|under_review|approved|rejected|cancelled)$")
+    notes: str = ""
 
 
 # ── Helper Functions ─────────────────────────────────────────────────

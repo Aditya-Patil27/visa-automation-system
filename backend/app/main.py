@@ -1,5 +1,11 @@
 """FastAPI application entry point."""
 import os, logging
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env BEFORE any other imports
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler

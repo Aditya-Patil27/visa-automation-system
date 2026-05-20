@@ -5,7 +5,55 @@ import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
 
-const FILTERS = ['all', 'uploaded', 'approved', 'rejected'];
+const FILTERS = ['all', 'pending_review', 'approved', 'rejected'];
+
+const ConfidenceBadge = ({ confidence }) => {
+    const color = confidence >= 0.8 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                  confidence >= 0.5 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+                  'text-red-400 bg-red-500/10 border-red-500/20';
+    const label = confidence >= 0.8 ? 'Likely Genuine' :
+                  confidence >= 0.5 ? 'Needs Review' : 'Suspicious';
+    return (
+        <span className={`px-2 py-0.5 rounded text-xs font-bold border ${color}`}>
+            {label} ({Math.round(confidence * 100)}%)
+        </span>
+    );
+};
+
+const VerificationPanel = ({ verification }) => {
+    if (!verification) return null;
+    const { overall_confidence, is_likely_genuine, warnings, checks } = verification;
+    
+    return (
+        <div className="mt-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">AI Verification</span>
+                <ConfidenceBadge confidence={overall_confidence} />
+            </div>
+            {warnings.length > 0 && (
+                <div className="space-y-1 mb-2">
+                    {warnings.map((w, i) => (
+                        <p key={i} className="text-xs text-amber-400 flex items-start gap-1">
+                            <span className="material-symbols-outlined text-sm shrink-0">warning</span>
+                            {w}
+                        </p>
+                    ))}
+                </div>
+            )}
+            {checks?.field_validation?.validations && (
+                <div className="space-y-1">
+                    {checks.field_validation.validations.map((v, i) => (
+                        <p key={i} className={`text-xs flex items-start gap-1 ${v.valid ? 'text-emerald-400' : 'text-red-400'}`}>
+                            <span className="material-symbols-outlined text-sm shrink-0">{v.valid ? 'check_circle' : 'error'}</span>
+                            {v.field}: {v.message}
+                        </p>
+                    ))}
+                </div>
+            )}
+            <p className="text-xs text-slate-500 mt-2 italic">{verification.recommendation}</p>
+        </div>
+    );
+};
 
 const AdminDocumentReview = () => {
     const [documents, setDocuments] = useState([]);
@@ -16,6 +64,7 @@ const AdminDocumentReview = () => {
     const [statusFilter, setStatusFilter] = useState('all');
     const [reviewNotes, setReviewNotes] = useState({});
     const [reviewingId, setReviewingId] = useState(null);
+    const [expandedDocs, setExpandedDocs] = useState({});
     const navigate = useNavigate();
 
     const fetchDocs = async () => {
@@ -58,6 +107,10 @@ const AdminDocumentReview = () => {
         }
     };
 
+    const toggleExpand = (id) => {
+        setExpandedDocs(prev => ({ ...prev, [id]: !prev[id] }));
+    };
+
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center bg-background-dark text-slate-500"><div className="animate-pulse space-y-4 w-full max-w-4xl p-8">{Array.from({ length: 5 }, (_, i) => <div key={i} className="h-16 bg-primary/5 rounded-xl"></div>)}</div></div>;
     }
@@ -90,7 +143,7 @@ const AdminDocumentReview = () => {
 
             <main className="p-6 md:p-8 max-w-6xl mx-auto">
                 <h1 className="text-3xl font-black mb-2">{L.ADMIN_DOC_REVIEW}</h1>
-                <p className="text-slate-400 mb-8">Review and verify user-submitted visa documents.</p>
+                <p className="text-slate-400 mb-8">Review and verify user-submitted visa documents with AI-powered fraud detection.</p>
 
                 <div className="grid grid-cols-4 gap-4 mb-8">
                     <div className="bg-primary/5 p-4 rounded-xl border border-primary/10"><p className="text-2xl font-black">{stats.total}</p><p className="text-xs text-slate-400">Total</p></div>
@@ -102,7 +155,7 @@ const AdminDocumentReview = () => {
                 <div className="flex gap-2 mb-6">
                     {FILTERS.map(f => (
                         <Button key={f} onClick={() => setStatusFilter(f)} variant="ghost" className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${statusFilter === f ? 'bg-primary text-background-dark' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
-                            {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+                            {f === 'all' ? 'All' : f === 'pending_review' ? 'Pending Review' : f.charAt(0).toUpperCase() + f.slice(1)}
                         </Button>
                     ))}
                 </div>
@@ -112,28 +165,43 @@ const AdminDocumentReview = () => {
                 ) : (
                     <div className="space-y-4">
                         {documents.map(doc => (
-                            <div key={doc.id} className="bg-background-dark/80 border border-slate-800 rounded-xl p-5">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div>
-                                        <p className="font-bold">{doc.filename}</p>
-                                        <p className="text-sm text-slate-400">{doc.user_email} • {doc.document_type}</p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${doc.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : doc.status === 'rejected' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>{doc.status}</span>
-                                        <Button variant="icon" href={`http://localhost:8000/admin/documents/download/${doc.id}`} target="_blank" rel="noreferrer">
-                                            <span className="material-symbols-outlined text-sm">{L.DOWNLOAD}</span>
-                                        </Button>
-                                    </div>
-                                </div>
-                                {doc.status === 'uploaded' && (
-                                    <div className="space-y-3">
-                                        <textarea value={reviewNotes[doc.id] || ''} onChange={(e) => setReviewNotes(prev => ({ ...prev, [doc.id]: e.target.value }))} placeholder="Reviewer notes (required for rejection)..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:border-primary focus:ring-0 outline-none" rows={2} />
-                                        <div className="flex gap-2">
-                                            <Button variant="success" onClick={() => handleReview(doc.id, 'approved')} disabled={reviewingId === doc.id}>{L.APPROVE}</Button>
-                                            <Button variant="danger" onClick={() => handleReview(doc.id, 'rejected')} disabled={reviewingId === doc.id}>{L.REJECT}</Button>
+                            <div key={doc.id} className="bg-background-dark/80 border border-slate-800 rounded-xl overflow-hidden">
+                                <div className="p-5">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-3">
+                                            <button onClick={() => toggleExpand(doc.id)} className="p-1 hover:bg-slate-800 rounded transition-colors">
+                                                <span className={`material-symbols-outlined text-slate-400 transition-transform ${expandedDocs[doc.id] ? 'rotate-90' : ''}`}>chevron_right</span>
+                                            </button>
+                                            <div>
+                                                <p className="font-bold">{doc.filename}</p>
+                                                <p className="text-sm text-slate-400">{doc.user_email} • {doc.document_type}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {doc.verification_summary && (
+                                                <ConfidenceBadge confidence={doc.verification_summary.confidence} />
+                                            )}
+                                            <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${doc.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : doc.status === 'rejected' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>{doc.status}</span>
+                                            <Button variant="icon" href={`http://localhost:8000/admin/documents/download/${doc.id}`} target="_blank" rel="noreferrer">
+                                                <span className="material-symbols-outlined text-sm">{L.DOWNLOAD}</span>
+                                            </Button>
                                         </div>
                                     </div>
-                                )}
+                                    
+                                    {expandedDocs[doc.id] && doc.verification && (
+                                        <VerificationPanel verification={doc.verification} />
+                                    )}
+
+                                    {(doc.status === 'pending_review' || doc.status === 'uploaded') && (
+                                        <div className="space-y-3 mt-3">
+                                            <textarea value={reviewNotes[doc.id] || ''} onChange={(e) => setReviewNotes(prev => ({ ...prev, [doc.id]: e.target.value }))} placeholder="Reviewer notes (required for rejection)..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:border-primary focus:ring-0 outline-none" rows={2} />
+                                            <div className="flex gap-2">
+                                                <Button variant="success" onClick={() => handleReview(doc.id, 'approved')} disabled={reviewingId === doc.id}>{L.APPROVE}</Button>
+                                                <Button variant="danger" onClick={() => handleReview(doc.id, 'rejected')} disabled={reviewingId === doc.id}>{L.REJECT}</Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         ))}
                     </div>

@@ -8,8 +8,10 @@ import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
 import { NAV_ITEMS_USER } from '../config/navigation';
+import { useUser } from '../context/UserContext';
 
 const UserDashboard = () => {
+    const { user } = useUser();
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
@@ -34,8 +36,8 @@ const UserDashboard = () => {
     }
 
     const data = dashboardData || {
-        user_name: "User",
-        email: "user@example.com",
+        user_name: user?.name || "User",
+        email: user?.email || "user@example.com",
         active_case: { status: "No Active Application", message: "Start a new application today." },
         next_appointment: { date: "TBD", title: "No Appointments", time: "--", location: "--" },
         recent_activities: [],

@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from bson.objectid import ObjectId
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, Form
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
@@ -24,7 +24,8 @@ from .models import (
     COLL_USER_DOCUMENTS, COLL_DOCUMENT_STATUS, COLL_PROGRESS,
     COLL_WORKFLOW, COLL_QUERIES, COLL_QUERY_RESPONSES,
     COLL_NOTIFICATIONS, COLL_NOTIFICATION_PREFS, COLL_RESET_TOKENS,
-    COLL_SCRAPER_LOGS, visa_to_db, doc_to_visa,
+    COLL_SCRAPER_LOGS, COLL_APPLICATIONS,
+    visa_to_db, doc_to_visa, ApplicationCreate, ApplicationStatusUpdate,
 )
 from .schemas import (
     AssessmentStep, AppointmentCreate, DocumentReview,
@@ -328,7 +329,10 @@ async def search_endpoint(query: dict, user: dict = Depends(get_current_user)):
 
 async def _run_ocr(file_bytes: bytes, content_type: str) -> str:
     google_key = os.environ.get("GOOGLE_VISION_API_KEY", "")
-    if google_key:
+    logger.info("OCR request: content_type=%s, google_key_set=%s", content_type, bool(google_key))
+
+    # For images, try Google Vision API first (optional, requires billing)
+    if google_key and content_type.startswith("image/"):
         import aiohttp
         try:
             b64_image = base64.standard_b64encode(file_bytes).decode("utf-8")
@@ -337,59 +341,57 @@ async def _run_ocr(file_bytes: bytes, content_type: str) -> str:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     result = await response.json()
+                    logger.info("Google Vision response: %s", json.dumps(result)[:500])
                     if "error" in result:
-                        raise HTTPException(status_code=502, detail=f"OCR error: {result['error'].get('message', 'Unknown')}")
-                    responses = result.get("responses", [])
-                    if not responses or not responses[0].get("fullTextAnnotation"):
-                        raise HTTPException(status_code=400, detail="No text detected")
-                    return responses[0]["fullTextAnnotation"]["text"]
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="OCR timed out")
-        except HTTPException:
-            raise
+                        logger.warning("Google Vision error (falling back to local OCR): %s", result["error"])
+                        # Don't raise - fall through to local OCR
+                    else:
+                        responses = result.get("responses", [])
+                        if responses and responses[0].get("fullTextAnnotation"):
+                            return responses[0]["fullTextAnnotation"]["text"]
         except Exception as e:
-            logger.error("Google Vision OCR failed: %s, falling back to local OCR", e)
+            logger.warning("Google Vision OCR failed (falling back to local OCR): %s", e)
 
-    # Fallback: local OCR using pytesseract (free, no API key needed)
-    return await _local_ocr(file_bytes, content_type)
+    # For PDFs, use pdfplumber
+    if content_type == "application/pdf":
+        try:
+            import pdfplumber
+            import io
+            extracted = []
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        extracted.append(page_text)
+            if extracted:
+                return "\n\n".join(extracted)
+            return "[No text detected in PDF - the file may be a scanned image]"
+        except ImportError:
+            return "[PDF text extraction requires pdfplumber: pip install pdfplumber]"
+        except Exception as e:
+            logger.error("PDF extraction failed: %s", e)
+            return f"[PDF processing error: {str(e)}]"
 
-
-async def _local_ocr(file_bytes: bytes, content_type: str) -> str:
-    """Extract text locally using pytesseract (requires tesseract-ocr installed)."""
-    try:
-        from PIL import Image
-        import pytesseract
-        import io
-
-        if content_type.startswith("image/"):
+    # Fallback for images: local pytesseract (free, no API key needed)
+    if content_type.startswith("image/"):
+        try:
+            from PIL import Image
+            import pytesseract
+            import io
+            # Set Tesseract path for Windows
+            pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
             image = Image.open(io.BytesIO(file_bytes))
             text = pytesseract.image_to_string(image)
             if text.strip():
                 return text.strip()
-            return "[No text detected in image]"
+            return "[No text detected in image - try a clearer image or adjust contrast]"
+        except ImportError:
+            return "[OCR engine not installed. Run: pip install pytesseract Pillow, and install tesseract-ocr on your system.]"
+        except Exception as e:
+            logger.error("Local OCR failed: %s", e)
+            return f"[OCR processing error: {str(e)}]"
 
-        elif content_type == "application/pdf":
-            try:
-                import pdfplumber
-                extracted = []
-                with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-                    for page in pdf.pages:
-                        page_text = page.extract_text()
-                        if page_text:
-                            extracted.append(page_text)
-                if extracted:
-                    return "\n\n".join(extracted)
-                return "[No text detected in PDF]"
-            except ImportError:
-                return "[PDF text extraction requires pdfplumber: pip install pdfplumber]"
-
-        else:
-            return f"[Unsupported file type: {content_type}. Please upload JPG, PNG, or PDF files.]"
-    except ImportError:
-        return "[OCR engine not installed. Run: pip install pytesseract pdfplumber Pillow, and install tesseract-ocr on your system.]"
-    except Exception as e:
-        logger.error("Local OCR failed: %s", e)
-        return f"[OCR processing error: {str(e)}]"
+    return f"[Unsupported file type: {content_type}. Please upload JPG, PNG, or PDF files.]"
 
 def _extract_fields(ocr_text: str) -> dict:
     fields = {}
@@ -440,36 +442,13 @@ async def get_document_types(visa_type_id: str = None, user: dict = Depends(get_
     return {"visa_type_id": visa_type_id, "visa_label": visa_label, "document_types": types}
 
 @router.post("/documents/upload")
-async def upload_document(file: UploadFile = File(...), document_type: str = "other", user: dict = Depends(get_current_user)):
+async def upload_document(file: UploadFile = File(...), document_type: str = Form("other"), user: dict = Depends(get_current_user)):
     from .encryption import encrypt_data
+    from .verification import verify_document
     email = user.get("sub", "")
     db = get_database()
 
-    # Bypass user: skip real file processing, return mock data
-    user_doc = await db[COLL_USERS].find_one({"email": email})
-    if user_doc and user_doc.get("bypass"):
-        mock_ocr = (
-            f"Name: Demo User\nPassport No: BYPASS{random.randint(100000, 999999)}\n"
-            f"Date of Birth: 15/05/1995\nNationality: INDIAN\n"
-            f"[BYPASS MODE - Mock OCR data]"
-        )
-        mock_fields = {"full_name": "Demo User", "passport_number": f"BYPASS{random.randint(100000, 999999)}",
-                       "nationality": "INDIAN", "dates_found": ["15/05/1995"], "bypass_mode": True}
-        doc_entry = {"user_email": email, "filename": file.filename or "demo_document.pdf",
-                     "content_type": "application/pdf", "document_type": document_type,
-                     "status": "approved", "is_encrypted": 0, "encrypted_data": b"",
-                     "ocr_text": mock_ocr, "created_at": datetime.utcnow().isoformat()}
-        result = await db[COLL_USER_DOCUMENTS].insert_one(doc_entry)
-        await db[COLL_DOCUMENT_STATUS].update_one(
-            {"user_email": email, "document_type": document_type},
-            {"$set": {"filename": file.filename or "demo_document.pdf", "status": "approved",
-                      "reviewed_by": "system", "reviewed_at": datetime.utcnow().isoformat()}},
-            upsert=True)
-        return {"id": str(result.inserted_id), "filename": doc_entry["filename"],
-                "content_type": doc_entry["content_type"], "document_type": document_type,
-                "status": "approved", "is_encrypted": False, "ocr_text": mock_ocr,
-                "extracted_fields": mock_fields, "created_at": doc_entry["created_at"],
-                "bypass_mode": True, "message": "Demo mode — document auto-approved"}
+    logger.info(f"Upload request: document_type={document_type}, user={email}, filename={file.filename}")
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
@@ -483,20 +462,27 @@ async def upload_document(file: UploadFile = File(...), document_type: str = "ot
     if not detected:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, and PDF files are supported")
     ocr_text = await _run_ocr(file_bytes, detected)
+    extracted = _extract_fields(ocr_text)
+    
+    # Run verification
+    verification = verify_document(file_bytes, detected, ocr_text, extracted)
+    
     encrypted = encrypt_data(file_bytes)
     doc = {"user_email": email, "filename": file.filename or "untitled",
            "content_type": file.content_type or "application/octet-stream",
-           "document_type": document_type, "status": "uploaded", "is_encrypted": 1,
-           "encrypted_data": encrypted, "ocr_text": ocr_text, "created_at": datetime.utcnow().isoformat()}
+           "document_type": document_type, "status": "pending_review", "is_encrypted": 1,
+           "encrypted_data": encrypted, "ocr_text": ocr_text, 
+           "extracted_fields": extracted, "verification": verification,
+           "created_at": datetime.utcnow().isoformat()}
     result = await db[COLL_USER_DOCUMENTS].insert_one(doc)
     await db[COLL_DOCUMENT_STATUS].update_one(
         {"user_email": email, "document_type": document_type},
-        {"$set": {"filename": file.filename or "untitled", "status": "uploaded"}},
+        {"$set": {"filename": file.filename or "untitled", "status": "pending_review"}},
         upsert=True)
     return {"id": str(result.inserted_id), "filename": doc["filename"], "content_type": doc["content_type"],
-            "document_type": document_type, "status": "uploaded", "is_encrypted": True,
-            "ocr_text": ocr_text, "extracted_fields": _extract_fields(ocr_text),
-            "created_at": doc["created_at"]}
+            "document_type": document_type, "status": "pending_review", "is_encrypted": True,
+            "ocr_text": ocr_text, "extracted_fields": extracted,
+            "verification": verification, "created_at": doc["created_at"]}
 
 @router.get("/documents/mydocs")
 async def get_my_documents(user: dict = Depends(get_current_user)):
@@ -544,7 +530,18 @@ async def get_pending_documents(status: str = None, limit: int = 100, offset: in
         query["status"] = status
     cursor = db[COLL_USER_DOCUMENTS].find(query).sort("created_at", -1).skip(offset).limit(limit)
     docs = await cursor.to_list(length=limit)
-    return [doc_to_id(d) for d in docs]
+    result = []
+    for d in docs:
+        doc_data = doc_to_id(d)
+        # Add verification summary
+        if "verification" in doc_data:
+            doc_data["verification_summary"] = {
+                "confidence": doc_data["verification"].get("overall_confidence", 0),
+                "is_likely_genuine": doc_data["verification"].get("is_likely_genuine", False),
+                "warnings_count": len(doc_data["verification"].get("warnings", [])),
+            }
+        result.append(doc_data)
+    return result
 
 @router.post("/admin/documents/{id}/review")
 async def review_document(id: str, review: DocumentReview, admin: dict = Depends(get_current_admin)):
@@ -581,22 +578,16 @@ async def get_user_dashboard(user: dict = Depends(get_current_user)):
     email = user.get("sub", "")
     db = get_database()
     user_doc = await db[COLL_USERS].find_one({"email": email})
-    is_bypass = bool(user_doc and user_doc.get("bypass"))
-    return {"user_name": str(email).split("@")[0].capitalize(), "email": email,
-        "bypass_mode": is_bypass,
-        "bypass_message": "Demo account — document verification is bypassed" if is_bypass else None,
-        "active_case": {"status": "Documents Verified", "message": "Standard application passed document verification."},
-        "next_appointment": {"date": "Oct 24", "title": "Biometric Enrollment", "time": "10:30 AM (GMT +1)", "location": "VFS Global, London"},
-        "recent_activities": [
-            {"title": "Documents Verified", "desc": "System auto-update", "time": "Today, 2:45 PM", "status": "completed"},
-            {"title": "Proof of Funds Uploaded", "desc": "Bank Statement", "time": "Yesterday, 9:15 AM", "status": "in_progress"}],
-        "documents": [{"name": "Passport_Scan.pdf", "size": "2.4 MB", "icon": "picture_as_pdf"}]}
+    user_name = str(email).split("@")[0].capitalize() if email else "User"
+    return {"user_name": user_name, "email": email,
+        "active_case": {"status": "In Progress", "message": "Your application is being processed."},
+        "next_appointment": None,
+        "recent_activities": [],
+        "documents": []}
 
 @router.get("/user/status")
 async def get_user_status(user: dict = Depends(get_current_user)):
-    db = get_database()
-    user_doc = await db[COLL_USERS].find_one({"email": user.get("sub", "")})
-    return {"bypass_mode": bool(user_doc and user_doc.get("bypass")), "role": user.get("role")}
+    return {"role": user.get("role")}
 
 @router.get("/dashboard/admin")
 async def get_admin_dashboard(admin: dict = Depends(get_current_admin)):
@@ -840,6 +831,187 @@ async def clear_cache(cache_type: Optional[str] = None, admin: dict = Depends(ge
         cache = await get_cache()
         deleted = await cache.clear_all()
     return {"message": "Cache cleared", "deleted_count": deleted, "cache_type": cache_type or "all"}
+
+# ── Visa Marketplace (Public) ────────────────────────────────────────
+
+@router.get("/visa/public")
+async def list_visas_public(
+    country: Optional[str] = None,
+    visa_type: Optional[str] = None,
+    min_processing_days: Optional[int] = None,
+    max_processing_days: Optional[int] = None,
+):
+    db = get_database()
+    pipeline = [{"$match": {}}]
+    match_stage = {}
+    if country:
+        match_stage["country"] = {"$regex": country, "$options": "i"}
+    if visa_type:
+        match_stage["visa_type"] = {"$regex": visa_type, "$options": "i"}
+    if match_stage:
+        pipeline[0]["$match"] = match_stage
+    cursor = db[COLL_VISAS].aggregate(pipeline)
+    docs = await cursor.to_list(length=500)
+    result = []
+    for d in docs:
+        visa = doc_to_visa(d)
+        pt = visa.processing_time or ""
+        days_match = re.search(r"(\d+)", pt)
+        processing_days = int(days_match.group(1)) if days_match else None
+        if min_processing_days and processing_days and processing_days < min_processing_days:
+            continue
+        if max_processing_days and processing_days and processing_days > max_processing_days:
+            continue
+        result.append(visa)
+    return result
+
+
+@router.get("/visa/{id}")
+async def get_visa_detail(id: str):
+    db = get_database()
+    doc = await db[COLL_VISAS].find_one({"_id": obid(id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Visa not found")
+    return doc_to_visa(doc)
+
+
+# ── Visa Applications ────────────────────────────────────────────────
+
+@router.post("/applications")
+async def create_application(app: ApplicationCreate, user: dict = Depends(get_current_user)):
+    db = get_database()
+    visa_doc = await db[COLL_VISAS].find_one({"_id": obid(app.visa_id)})
+    if not visa_doc:
+        raise HTTPException(status_code=404, detail="Visa not found")
+    now = datetime.utcnow().isoformat()
+    doc = {
+        "user_email": user.get("sub", ""),
+        "visa_id": obid(app.visa_id),
+        "status": "submitted",
+        "applicant_name": app.applicant_name,
+        "applicant_email": app.applicant_email,
+        "applicant_passport": app.applicant_passport,
+        "applicant_nationality": app.applicant_nationality,
+        "purpose": app.purpose,
+        "intended_stay_days": app.intended_stay_days,
+        "travel_date": app.travel_date,
+        "documents_submitted": app.documents_submitted,
+        "notes": app.notes,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await db[COLL_APPLICATIONS].insert_one(doc)
+    doc["id"] = str(result.inserted_id)
+    del doc["_id"]
+    del doc["visa_id"]
+    doc["visa_id"] = app.visa_id
+    await db[COLL_NOTIFICATIONS].insert_one({
+        "user_email": user.get("sub", ""),
+        "type": "application",
+        "title": "Application Submitted",
+        "message": f"Your visa application for {visa_doc['country']} ({visa_doc['visa_type']}) has been submitted.",
+        "created_at": now,
+    })
+    return doc
+
+
+@router.get("/applications/my")
+async def get_my_applications(search: str = None, user: dict = Depends(get_current_user)):
+    try:
+        db = get_database()
+        logger.info(f"Fetching applications for user: {user.get('sub')}")
+        # Simple query without aggregation for now
+        query = {"user_email": user.get("sub", "")}
+        cursor = db[COLL_APPLICATIONS].find(query).sort("created_at", -1)
+        docs = await cursor.to_list(length=200)
+        logger.info(f"Found {len(docs)} applications")
+        
+        result = []
+        for d in docs:
+            item = doc_to_id(d)
+            # Convert visa_id ObjectId to string
+            if "visa_id" in item:
+                item["visa_id"] = str(item["visa_id"])
+            result.append(item)
+        
+        logger.info(f"Returning {len(result)} applications")
+        return result
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in get_my_applications: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/applications/{id}")
+async def get_application(id: str, user: dict = Depends(get_current_user)):
+    db = get_database()
+    pipeline = [
+        {"$match": {"_id": obid(id), "user_email": user.get("sub", "")}},
+        {"$lookup": {
+            "from": COLL_VISAS,
+            "localField": "visa_id",
+            "foreignField": "_id",
+            "as": "visa_info",
+        }},
+        {"$unwind": {"path": "$visa_info", "preserveNullAndEmptyArrays": True}},
+    ]
+    cursor = db[COLL_APPLICATIONS].aggregate(pipeline)
+    docs = await cursor.to_list(length=1)
+    if not docs:
+        raise HTTPException(status_code=404, detail="Application not found")
+    d = doc_to_id(docs[0])
+    if "visa_info" in d and d["visa_info"]:
+        visa = d["visa_info"]
+        d["visa_country"] = visa.get("country", "Unknown")
+        d["visa_type_label"] = visa.get("visa_type", "Unknown")
+        d["visa_processing_time"] = visa.get("processing_time", "")
+        d["visa_description"] = visa.get("description", "")
+        d["visa_fee"] = visa.get("fee")
+        d["visa_documents"] = visa.get("documents", [])
+        del d["visa_info"]
+    # Convert visa_id ObjectId to string
+    if "visa_id" in d and hasattr(d["visa_id"], "__str__"):
+        d["visa_id"] = str(d["visa_id"])
+    return d
+
+
+@router.post("/applications/{id}/cancel")
+async def cancel_application(id: str, user: dict = Depends(get_current_user)):
+    db = get_database()
+    doc = await db[COLL_APPLICATIONS].find_one({"_id": obid(id), "user_email": user.get("sub", "")})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if doc["status"] not in ("pending", "submitted"):
+        raise HTTPException(status_code=400, detail=f"Cannot cancel application with status '{doc['status']}'")
+    now = datetime.utcnow().isoformat()
+    await db[COLL_APPLICATIONS].update_one(
+        {"_id": obid(id)},
+        {"$set": {"status": "cancelled", "updated_at": now}},
+    )
+    return {"detail": "Application cancelled", "id": id, "status": "cancelled"}
+
+
+@router.post("/admin/applications/{id}/status")
+async def admin_update_application_status(id: str, update: ApplicationStatusUpdate, admin: dict = Depends(get_current_admin)):
+    db = get_database()
+    doc = await db[COLL_APPLICATIONS].find_one({"_id": obid(id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    now = datetime.utcnow().isoformat()
+    set_fields = {"status": update.status, "updated_at": now}
+    if update.notes:
+        set_fields["admin_notes"] = update.notes
+    await db[COLL_APPLICATIONS].update_one({"_id": obid(id)}, {"$set": set_fields})
+    await db[COLL_NOTIFICATIONS].insert_one({
+        "user_email": doc["user_email"],
+        "type": "application",
+        "title": f"Application {update.status.replace('_', ' ').title()}",
+        "message": f"Your visa application status has been updated to: {update.status.replace('_', ' ')}." +
+                   (f"\nNotes: {update.notes}" if update.notes else ""),
+        "created_at": now,
+    })
+    return {"detail": f"Status updated to {update.status}", "id": id, "status": update.status}
+
 
 # ── Scheduler Endpoints ──────────────────────────────────────────────
 

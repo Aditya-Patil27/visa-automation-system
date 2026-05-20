@@ -17,4 +17,8 @@ export const ROUTES = {
   SCRAPER_MONITOR: '/scraper-monitoring-dashboard',
   APPROVAL_WORKFLOW: '/approval-workflow',
   ACTIVITY_LOGS: '/activity-logs',
+  VISA_MARKETPLACE: '/visa-marketplace',
+  VISA_DETAILS: '/visa/:id',
+  APPLY_VISA: '/apply/:visa_id',
+  MY_APPLICATIONS: '/my-applications',
 };

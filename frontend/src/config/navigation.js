@@ -3,6 +3,8 @@ import { L } from './labels';
 
 export const NAV_ITEMS_USER = [
   { icon: 'dashboard', label: L.DASHBOARD, route: ROUTES.USER_DASHBOARD },
+  { icon: 'public', label: L.VISA_MARKETPLACE, route: ROUTES.VISA_MARKETPLACE },
+  { icon: 'description', label: L.MY_APPLICATIONS, route: ROUTES.MY_APPLICATIONS },
   { icon: 'verified_user', label: L.ELIGIBILITY, route: ROUTES.ELIGIBILITY_CHECKER },
   { icon: 'forum', label: L.CHATBOT, route: ROUTES.CHATBOT },
   { icon: 'description', label: L.DOCUMENTS, route: ROUTES.DOCUMENT_VAULT },

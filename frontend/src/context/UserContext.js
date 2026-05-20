@@ -1,40 +1,50 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 
 const UserContext = createContext(null);
 
 export const UserProvider = ({ children }) => {
-    const [user, setUser] = useState(() => {
-        const cached = localStorage.getItem('user_profile');
-        if (cached) {
-            try { return JSON.parse(cached); } catch {}
-        }
-        return null;
-    });
-    const [loading, setLoading] = useState(!user);
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchUser = async () => {
-            try {
-                const data = await api.get('/dashboard/user');
-                const info = {
-                    name: data.user_name || 'User',
-                    email: data.email || '',
-                };
-                setUser(info);
-                localStorage.setItem('user_profile', JSON.stringify(info));
-            } catch (err) {
-                const fallback = { name: 'User', email: '' };
-                setUser(fallback);
-                localStorage.setItem('user_profile', JSON.stringify(fallback));
-            } finally {
-                setLoading(false);
-            }
-        };
-        if (!user) fetchUser();
+    const fetchUser = useCallback(async () => {
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+            setUser(null);
+            setLoading(false);
+            return;
+        }
+        try {
+            const data = await api.get('/dashboard/user');
+            const info = {
+                name: data.user_name || data.email?.split('@')[0] || 'User',
+                email: data.email || '',
+                role: localStorage.getItem('user_role') || 'user',
+            };
+            setUser(info);
+            localStorage.setItem('user_profile', JSON.stringify(info));
+        } catch (err) {
+            console.error('Failed to fetch user:', err);
+            const fallback = { name: 'User', email: '', role: 'user' };
+            setUser(fallback);
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
-    const value = useMemo(() => ({ user, loading }), [user, loading]);
+    useEffect(() => {
+        fetchUser();
+    }, [fetchUser]);
+
+    useEffect(() => {
+        const handleStorageChange = () => {
+            fetchUser();
+        };
+        window.addEventListener('auth-change', handleStorageChange);
+        return () => window.removeEventListener('auth-change', handleStorageChange);
+    }, [fetchUser]);
+
+    const value = { user, loading, refreshUser: fetchUser };
 
     return (
         <UserContext.Provider value={value}>

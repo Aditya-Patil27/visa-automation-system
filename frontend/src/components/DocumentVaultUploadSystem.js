@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import Button from './ui/Button';
 import { api } from '../services/api';
 import { L } from '../config/labels';
 import { ROUTES } from '../config/routes';
@@ -25,7 +24,6 @@ const DocumentVaultUploadSystem = () => {
     const [selectedFile, setSelectedFile] = useState(null);
     const [ocrResult, setOcrResult] = useState(null);
     const fileInputRef = useRef(null);
-    const dropZoneRef = useRef(null);
 
     const fetchData = async () => {
         try {
@@ -47,6 +45,7 @@ const DocumentVaultUploadSystem = () => {
     useEffect(() => { fetchData(); }, []);
 
     const handleFileSelect = (file) => {
+        console.log('File selected:', file?.name, file?.type, file?.size);
         if (!file) return;
         const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
         const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
@@ -67,6 +66,14 @@ const DocumentVaultUploadSystem = () => {
         setError('');
     };
 
+    const triggerFileInput = () => {
+        console.log('Browse Files clicked');
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+            fileInputRef.current.click();
+        }
+    };
+
     const handleConfirmSave = async () => {
         if (!selectedFile || !selectedDocType) {
             setError(selectedDocType ? 'No file selected.' : 'Please select a document type.');
@@ -81,7 +88,6 @@ const DocumentVaultUploadSystem = () => {
             formData.append('document_type', selectedDocType);
             const response = await api.upload('/documents/upload', formData);
             setSuccess(`${selectedFile.name} uploaded successfully`);
-            setSelectedFile(null);
             setOcrResult(response);
             fetchData();
         } catch (err) {
@@ -94,6 +100,7 @@ const DocumentVaultUploadSystem = () => {
     };
 
     const handleDeleteDoc = async (id) => {
+        if (!window.confirm('Delete this document?')) return;
         try {
             await api.del(`/documents/${id}`);
             setSuccess('Document deleted');
@@ -101,6 +108,13 @@ const DocumentVaultUploadSystem = () => {
         } catch (err) {
             setError('Network error.');
         }
+    };
+
+    const clearSelection = () => {
+        setSelectedFile(null);
+        setOcrResult(null);
+        setSelectedDocType('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const getStatusBadge = (docType) => {
@@ -148,19 +162,15 @@ const DocumentVaultUploadSystem = () => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-8">
-                        <div
-                            ref={dropZoneRef}
-                            onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer.files[0]); }}
-                            onDragOver={(e) => e.preventDefault()}
-                            onClick={() => fileInputRef.current?.click()}
-                            className="bg-primary/5 border-2 border-dashed border-primary/20 rounded-2xl p-8 text-center cursor-pointer hover:shadow-[0_0_20px_rgba(13,204,242,0.15)] transition-all"
-                        >
+                        <div className="bg-primary/5 border-2 border-dashed border-primary/20 rounded-2xl p-8 text-center hover:shadow-[0_0_20px_rgba(13,204,242,0.15)] transition-all">
                             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4"><span className="material-symbols-outlined text-primary text-4xl">cloud_upload</span></div>
                             <h3 className="text-xl font-bold mb-2">Drop your documents here</h3>
                             <p className="text-slate-500 text-sm mb-4">PDF, JPG, PNG accepted</p>
                             {selectedFile && <p className="text-sm text-primary font-medium mb-4">Selected: {selectedFile.name}</p>}
-                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={(e) => { if (e.target.files[0]) handleFileSelect(e.target.files[0]); }} />
-                            <Button variant="secondary" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>Browse Files</Button>
+                            <input type="file" ref={fileInputRef} className="hidden" accept=".pdf,.jpg,.jpeg,.png,image/*" onChange={(e) => { console.log('File input changed', e.target.files); if (e.target.files && e.target.files[0]) handleFileSelect(e.target.files[0]); }} />
+                            <button type="button" onClick={triggerFileInput} className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm rounded-xl bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 cursor-pointer transition-all">
+                                Browse Files
+                            </button>
                         </div>
 
                         <div className="bg-background-dark/40 rounded-2xl border border-primary/10 p-6">
@@ -172,10 +182,14 @@ const DocumentVaultUploadSystem = () => {
                                         <option key={dt.name} value={dt.name}>{dt.label}</option>
                                     ))}
                                 </select>
-                                <Button onClick={handleConfirmSave} disabled={!selectedFile || !selectedDocType || uploading} icon="lock">
+                                <button type="button" onClick={handleConfirmSave} disabled={!selectedFile || !selectedDocType || uploading} className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm rounded-xl font-bold cursor-pointer transition-all ${(!selectedFile || !selectedDocType || uploading) ? 'bg-primary/20 text-primary/50 cursor-not-allowed' : 'bg-primary text-background-dark hover:shadow-[0_6px_20px_rgba(13,204,242,0.23)]'}`}>
+                                    <span className="material-symbols-outlined">lock</span>
                                     {uploading ? 'Uploading...' : 'Encrypt & Upload'}
-                                </Button>
+                                </button>
                             </div>
+                            {selectedFile && (
+                                <button type="button" onClick={clearSelection} className="mt-3 text-xs text-slate-500 hover:text-red-400 transition-colors">Clear selection</button>
+                            )}
                         </div>
 
                         <div>
@@ -219,7 +233,9 @@ const DocumentVaultUploadSystem = () => {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     {getStatusBadge(doc.document_type)}
-                                                    <Button variant="icon" onClick={() => handleDeleteDoc(doc.id)} icon="delete" className="hover:text-red-400" />
+                                                    <button type="button" onClick={() => handleDeleteDoc(doc.id)} className="p-2 text-slate-400 hover:text-red-400 transition-colors cursor-pointer" title="Delete">
+                                                        <span className="material-symbols-outlined text-lg">delete</span>
+                                                    </button>
                                                 </div>
                                             </div>
                                         );
@@ -235,7 +251,7 @@ const DocumentVaultUploadSystem = () => {
                             <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold">AI SCANNER</span>
                         </div>
                         <div className="p-4 space-y-4 overflow-y-auto flex-1">
-                            {selectedFile && ocrResult && (
+                            {ocrResult && (
                                 <>
                                     {ocrResult.extracted_fields?.full_name && <Field label="Full Name" value={ocrResult.extracted_fields.full_name} />}
                                     {ocrResult.extracted_fields?.passport_number && <Field label="Passport No." value={ocrResult.extracted_fields.passport_number} />}
@@ -246,19 +262,20 @@ const DocumentVaultUploadSystem = () => {
                                             <div className="p-3 bg-slate-900 rounded-lg max-h-40 overflow-y-auto"><p className="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words">{ocrResult.ocr_text}</p></div>
                                         </div>
                                     )}
+                                    {!ocrResult.extracted_fields?.full_name && !ocrResult.extracted_fields?.passport_number && !ocrResult.extracted_fields?.nationality && !ocrResult.ocr_text && (
+                                        <div className="text-center py-8 text-slate-500">
+                                            <p className="text-sm">Document uploaded but no text was extracted.</p>
+                                            <p className="text-xs mt-1">This may be a scanned image PDF. Try uploading a text-based PDF or an image file.</p>
+                                        </div>
+                                    )}
                                 </>
                             )}
-                            {!selectedFile && (
+                            {!ocrResult && (
                                 <div className="text-center py-12 text-slate-500">
                                     <span className="material-symbols-outlined text-4xl mb-2 block">find_in_page</span>
-                                    <p className="text-sm">Select a file to preview OCR data</p>
+                                    <p className="text-sm">Upload a file to preview OCR data</p>
                                 </div>
                             )}
-                        </div>
-                        <div className="p-4 bg-background-dark/80 border-t border-primary/10">
-                            <Button onClick={handleConfirmSave} disabled={!selectedFile || !selectedDocType || uploading} icon="lock" className="w-full">
-                                {uploading ? 'Uploading...' : L.ENCRYPT_SAVE}
-                            </Button>
                         </div>
                     </div>
                 </div>
