@@ -14,9 +14,9 @@ dist/
 # GSD Planning (do not commit)
 .planning/
 
-# Internal Docs
-VAS SRS.md
-project_purpose.md
+# Internal Docs (now in docs/)
+# VAS SRS.md
+# project_purpose.md
 
 # Secrets and Credentials
 *client_secret*.json
